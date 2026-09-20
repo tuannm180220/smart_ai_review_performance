@@ -249,6 +249,81 @@ frontend/
     api.js                  fetch wrapper for the backend
 ```
 
+## MCP server (review PRs from your own Claude Code, no AI_API_KEY)
+
+This project's data — PRs, diffs, linked Jira tickets, synced records — is
+exposed as MCP tools, so anyone can review pull requests and gauge ticket
+complexity directly from their own Claude Code in VS Code, using their own
+Claude subscription/login instead of the `AI_API_KEY` the web **AI Review**
+tab needs. The MCP server only talks to *this backend's* REST API — it holds
+no Jira/Bitbucket/AI credentials of its own, and reuses whatever the backend
+is already configured with.
+
+Tools exposed: `list_repos`, `list_prs`, `get_pr_details`,
+`get_pr_review_context` (full evidence bundle + diff, the same context the
+web tab would otherwise send to an AI provider), `get_ticket` (description,
+story points, status history/reopens — this project's complexity signal),
+`list_records`, `list_records_by_ticket`, `run_sync`.
+
+### Shared setup (recommended — teammates run nothing locally)
+
+The backend serves the MCP endpoint itself at `POST /mcp` (Streamable HTTP,
+`backend/src/mcp/httpRoute.js`), right alongside the existing REST API — so
+once it's deployed (e.g. the Render backend in **Deploy to Render** below),
+every teammate just points their own Claude Code at that URL. No one clones
+the repo, installs Node, or runs `npm run dev` to use it.
+
+1. On the shared backend's host, set `MCP_AUTH_TOKEN` to a random shared
+   secret (env var, same place as `AI_API_KEY` etc.) and redeploy. Anyone who
+   has this token can call every tool below (read PR/ticket data, trigger a
+   sync), so hand it out over a private channel (password manager, DM), not
+   in this repo.
+2. This repo's root `.mcp.json` already registers the server:
+   ```json
+   {
+     "mcpServers": {
+       "ai-review-performance": {
+         "type": "http",
+         "url": "https://smart-ai-review-backend.onrender.com/mcp",
+         "headers": { "Authorization": "Bearer ${MCP_AUTH_TOKEN}" }
+       }
+     }
+   }
+   ```
+   Update the `url` if your team's backend lives elsewhere.
+3. Each teammate sets `MCP_AUTH_TOKEN` in their own shell/OS environment
+   (never committed) and opens this repo in VS Code. Claude Code prompts to
+   approve the project's MCP server the first time — approve it.
+4. Ask Claude Code things like *"review PR 42 in repo my-service"* or *"how
+   complex is ticket PROJ-123?"* — it calls `get_pr_review_context` /
+   `get_ticket` to pull real diffs, commits, comments, and ticket data, then
+   writes the review itself, on that person's own Claude Code login.
+
+### Local/solo alternative
+
+Prefer running everything yourself instead of a shared backend? Swap the
+`.mcp.json` entry for a locally-spawned stdio server instead of the remote
+URL:
+
+```json
+{
+  "mcpServers": {
+    "ai-review-performance": {
+      "command": "node",
+      "args": ["backend/src/mcp/server.js"]
+    }
+  }
+}
+```
+
+This talks to `http://localhost:3001/api` by default (override with
+`MCP_BACKEND_URL`), so it needs your own `cd backend && npm run dev` running.
+
+Either way, this is the recommended path for teammates instead of
+configuring `AI_API_KEY`/`AI_USE_CLAUDE_SUBSCRIPTION` for the web AI Review
+tab — each person's own Claude Code does the review on their own login, with
+no shared key or subscription contention.
+
 ## AI providers (AI Review tab)
 
 Pick one in Settings — all three are called from the backend only, so the

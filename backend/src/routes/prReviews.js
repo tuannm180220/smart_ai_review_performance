@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { asyncHandler } from "../lib/asyncHandler.js";
-import { reviewPullRequest } from "../services/prReviewService.js";
+import { reviewPullRequest, getPrReviewContext } from "../services/prReviewService.js";
 import { getPrReview, listPrReviews, listPrReviewStatuses } from "../store/prReviewStore.js";
 import { appendEvent } from "../store/usageEventStore.js";
 import { resolveEmail } from "../store/authorEmailStore.js";
@@ -28,6 +28,14 @@ router.get(
     const review = getPrReview(req.params.repo, req.params.id);
     if (!review) return res.status(404).json({ error: { message: "No saved review for this PR." } });
     res.json(review);
+  })
+);
+
+router.get(
+  "/pr-reviews/:repo/:id/context",
+  asyncHandler(async (req, res) => {
+    const context = await getPrReviewContext({ repo: req.params.repo, prId: req.params.id });
+    res.json(context);
   })
 );
 

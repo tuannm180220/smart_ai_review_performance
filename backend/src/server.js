@@ -13,6 +13,7 @@ import syncRoutes from "./routes/sync.js";
 import aiReviewRoutes from "./routes/aiReview.js";
 import prReviewRoutes from "./routes/prReviews.js";
 import adminRoutes from "./routes/admin.js";
+import mcpRoute from "./mcp/httpRoute.js";
 
 // Load backend/.env if present, without adding a dependency.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -44,6 +45,7 @@ app.use("/api", syncRoutes);
 app.use("/api", aiReviewRoutes);
 app.use("/api", prReviewRoutes);
 app.use("/api", adminRoutes);
+app.use("/mcp", mcpRoute);
 
 app.use((req, res) => {
   res.status(404).json({ error: { message: "Not found" } });

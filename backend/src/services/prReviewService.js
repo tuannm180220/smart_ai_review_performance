@@ -100,6 +100,21 @@ async function loadRecord({ repo, prId, hint }) {
   };
 }
 
+/**
+ * Assembles the same evidence bundle (record metadata, ticket info, diff text)
+ * that would otherwise be sent to an AI provider, without calling one — lets a
+ * caller with its own model access (e.g. an MCP client) do the review itself.
+ */
+export async function getPrReviewContext({ repo, prId, hint } = {}) {
+  if (!repo || prId == null || prId === "") {
+    throw new AtlassianApiError("repo and prId are required", 400, "MISSING_PR");
+  }
+  const record = await loadRecord({ repo, prId, hint });
+  const evidence = evidenceFromRecord(record);
+  const prDiff = await loadPrDiffForReview({ repo: record.repo, prId: record.prId });
+  return { evidence, diff: prDiff };
+}
+
 export async function reviewPullRequest({ repo, prId, hint } = {}) {
   if (!repo || prId == null || prId === "") {
     throw new AtlassianApiError("repo and prId are required", 400, "MISSING_PR");

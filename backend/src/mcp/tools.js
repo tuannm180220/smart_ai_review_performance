@@ -1,6 +1,7 @@
 import axios from "axios";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { COMPLEXITY, COMPLETENESS, PR_REVIEW_SIGNALS } from "../lib/prReviewSchema.js";
 
 // In-process mode (used by the HTTP transport mounted on this same Express app)
 // calls the route handlers directly via loopback HTTP to `PORT`. Standalone/stdio
@@ -26,6 +27,7 @@ export function createMcpServer() {
   const http = axios.create({ baseURL: resolveBaseUrl(), timeout: 60000 });
   const get = (path, params) => http.get(path, { params }).then((res) => res.data);
   const post = (path, params) => http.post(path, null, { params }).then((res) => res.data);
+  const postBody = (path, data) => http.post(path, data).then((res) => res.data);
 
   const server = new McpServer({ name: "ai-review-performance", version: "1.0.0" });
 
@@ -85,6 +87,33 @@ export function createMcpServer() {
     async ({ repo, id }) => {
       try {
         return textResult(await get(`/pr-reviews/${repo}/${id}/context`));
+      } catch (err) {
+        return errorResult(err);
+      }
+    }
+  );
+
+  server.tool(
+    "save_pr_review",
+    "Publish a PR review you've written (after calling get_pr_review_context) into the shared " +
+      "app's store, so it shows up in the web UI's PR Watch table and 'View report' for " +
+      "teammates — the same place a review from the web AI Review button would land. Follow the " +
+      "same rubric get_pr_review_context implies: cite the diff over metadata, be evidence-based, " +
+      "1-3 strengths, 1-4 improvements.",
+    {
+      repo: z.string(),
+      id: z.union([z.string(), z.number()]),
+      summary: z.string().describe("1 sentence: what this PR actually delivered vs the ticket"),
+      ticketComplexity: z.enum([...COMPLEXITY]),
+      codeCompleteness: z.enum([...COMPLETENESS]),
+      labelRationale: z.string().describe("1 sentence: evidence for the two labels above"),
+      strengths: z.array(z.string()).max(3).describe("Reusable engineering habits, not one-off notes"),
+      improvements: z.array(z.string()).max(4).describe("Actionable, cite a file path when possible"),
+      signals: z.array(z.enum([...PR_REVIEW_SIGNALS])).optional(),
+    },
+    async ({ repo, id, ...assessment }) => {
+      try {
+        return textResult(await postBody(`/pr-reviews/${repo}/${id}/submit`, assessment));
       } catch (err) {
         return errorResult(err);
       }

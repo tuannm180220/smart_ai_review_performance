@@ -261,9 +261,19 @@ is already configured with.
 
 Tools exposed: `list_repos`, `list_prs`, `get_pr_details`,
 `get_pr_review_context` (full evidence bundle + diff, the same context the
-web tab would otherwise send to an AI provider), `get_ticket` (description,
-story points, status history/reopens — this project's complexity signal),
-`list_records`, `list_records_by_ticket`, `run_sync`.
+web tab would otherwise send to an AI provider), `save_pr_review` (publishes
+the review Claude Code wrote into the same store the web AI Review button
+writes to, so it shows up in **PR Watch** / "View report" for everyone —
+without this, a VS Code-written review only lives in that person's chat),
+`get_ticket` (description, story points, status history/reopens — this
+project's complexity signal), `list_records`, `list_records_by_ticket`,
+`run_sync`.
+
+Note: clicking **Review** in the web UI can never trigger a teammate's local
+VS Code — a browser can't launch or control someone's editor. The two review
+paths (web button vs. VS Code + MCP) are triggered independently; the shared
+store via `save_pr_review` is what makes their *output* land in the same
+place.
 
 ### Shared setup (recommended — teammates run nothing locally)
 

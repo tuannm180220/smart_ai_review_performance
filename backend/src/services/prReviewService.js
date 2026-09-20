@@ -115,6 +115,27 @@ export async function getPrReviewContext({ repo, prId, hint } = {}) {
   return { evidence, diff: prDiff };
 }
 
+function buildSavedReview({ record, assessment, prDiff, provider }) {
+  const saved = {
+    repo: record.repo,
+    prId: record.prId,
+    title: record.title,
+    link: record.link,
+    author: record.author,
+    authorUsername: record.authorUsername,
+    state: record.state,
+    prCreatedAt: record.createdAt,
+    jiraKey: record.jiraKey || null,
+    storyPoints: record.storyPoints ?? null,
+    ticketSummary: record.ticketSummary || null,
+    provider,
+    ...assessment,
+    diffCoverage: summarizeDiffCoverage(prDiff),
+  };
+  saved.reviewDocument = formatPrReviewMarkdown(saved);
+  return saved;
+}
+
 export async function reviewPullRequest({ repo, prId, hint } = {}) {
   if (!repo || prId == null || prId === "") {
     throw new AtlassianApiError("repo and prId are required", 400, "MISSING_PR");
@@ -141,23 +162,24 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
   }
 
   const assessment = normalizeAssessment(parsed);
-  const saved = {
-    repo: record.repo,
-    prId: record.prId,
-    title: record.title,
-    link: record.link,
-    author: record.author,
-    authorUsername: record.authorUsername,
-    state: record.state,
-    prCreatedAt: record.createdAt,
-    jiraKey: record.jiraKey || null,
-    storyPoints: record.storyPoints ?? null,
-    ticketSummary: record.ticketSummary || null,
-    provider: cfg.aiProvider,
-    ...assessment,
-    diffCoverage: summarizeDiffCoverage(prDiff),
-  };
-  saved.reviewDocument = formatPrReviewMarkdown(saved);
+  const saved = buildSavedReview({ record, assessment, prDiff, provider: cfg.aiProvider });
+  return upsertPrReview(saved);
+}
+
+/**
+ * Saves a review an external caller already wrote (e.g. a teammate's own
+ * Claude Code, via the MCP get_pr_review_context -> save_pr_review flow)
+ * into the same store reviewPullRequest() writes to, so it shows up in the
+ * web UI identically — no AI provider call happens here.
+ */
+export async function submitPrReview({ repo, prId, assessment, provider = "claude-code", hint } = {}) {
+  if (!repo || prId == null || prId === "") {
+    throw new AtlassianApiError("repo and prId are required", 400, "MISSING_PR");
+  }
+  const record = await loadRecord({ repo, prId, hint });
+  const prDiff = await loadPrDiffForReview({ repo: record.repo, prId: record.prId });
+  const normalized = normalizeAssessment(assessment);
+  const saved = buildSavedReview({ record, assessment: normalized, prDiff, provider });
   return upsertPrReview(saved);
 }
 

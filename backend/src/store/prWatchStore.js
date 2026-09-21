@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDatabaseEnabled, query } from "../db/pool.js";
+import { getRequestUserId } from "../lib/requestContext.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "..", "data");
@@ -10,8 +12,6 @@ function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// UTC calendar day — matches the UTC timestamps Bitbucket returns, so "today"
-// lines up with the `created_on >= ...` query used to fetch new PRs.
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -20,12 +20,12 @@ function itemKey(repo, prId) {
   return `${repo}#${prId}`;
 }
 
-function writeState(state) {
+function writeStateFile(state) {
   ensureDataDir();
   fs.writeFileSync(FILE_PATH, JSON.stringify(state, null, 2), "utf-8");
 }
 
-function readState() {
+function readStateFile() {
   ensureDataDir();
   let state = null;
   if (fs.existsSync(FILE_PATH)) {
@@ -37,28 +37,59 @@ function readState() {
   }
   if (!state || state.date !== todayKey()) {
     state = { date: todayKey(), items: {} };
-    writeState(state);
+    writeStateFile(state);
   }
   return state;
 }
 
-export function getWatchDate() {
-  return readState().date;
+async function readState() {
+  if (!isDatabaseEnabled()) return readStateFile();
+  const userId = getRequestUserId();
+  if (!userId) return { date: todayKey(), items: {} };
+  const date = todayKey();
+  const result = await query(`SELECT data FROM pr_watch WHERE user_id = $1 AND date = $2`, [userId, date]);
+  if (!result.rows[0]) {
+    const state = { date, items: {} };
+    await query(
+      `INSERT INTO pr_watch (user_id, date, data) VALUES ($1, $2, $3::jsonb)
+       ON CONFLICT (user_id, date) DO NOTHING`,
+      [userId, date, JSON.stringify(state)]
+    );
+    return state;
+  }
+  return typeof result.rows[0].data === "string" ? JSON.parse(result.rows[0].data) : result.rows[0].data;
 }
 
-export function getWatchItems() {
-  const state = readState();
+async function writeState(state) {
+  if (!isDatabaseEnabled()) {
+    writeStateFile(state);
+    return;
+  }
+  const userId = getRequestUserId();
+  if (!userId) throw new Error("userId required for pr-watch");
+  await query(
+    `INSERT INTO pr_watch (user_id, date, data) VALUES ($1, $2, $3::jsonb)
+     ON CONFLICT (user_id, date) DO UPDATE SET data = EXCLUDED.data`,
+    [userId, state.date, JSON.stringify(state)]
+  );
+}
+
+export async function getWatchDate() {
+  return (await readState()).date;
+}
+
+export async function getWatchItems() {
+  const state = await readState();
   return Object.values(state.items).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
-export function getWatchItem(repo, prId) {
-  const state = readState();
+export async function getWatchItem(repo, prId) {
+  const state = await readState();
   return state.items[itemKey(repo, prId)] || null;
 }
 
-/** Adds a PR to today's watch list if it isn't already there. Returns the new item, or null if it already existed. */
-export function addItemIfNew(item) {
-  const state = readState();
+export async function addItemIfNew(item) {
+  const state = await readState();
   const key = itemKey(item.repo, item.prId);
   if (state.items[key]) return null;
   state.items[key] = {
@@ -68,12 +99,12 @@ export function addItemIfNew(item) {
     reviewedAt: null,
     firstSeenAt: new Date().toISOString(),
   };
-  writeState(state);
+  await writeState(state);
   return state.items[key];
 }
 
-export function saveReview(repo, prId, document, extra = {}) {
-  const state = readState();
+export async function saveReview(repo, prId, document, extra = {}) {
+  const state = await readState();
   const key = itemKey(repo, prId);
   if (!state.items[key]) return null;
   state.items[key] = {
@@ -87,6 +118,6 @@ export function saveReview(repo, prId, document, extra = {}) {
     ticketComplexity: extra.ticketComplexity || null,
     codeCompleteness: extra.codeCompleteness || null,
   };
-  writeState(state);
+  await writeState(state);
   return state.items[key];
 }

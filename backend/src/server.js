@@ -13,9 +13,10 @@ import syncRoutes from "./routes/sync.js";
 import aiReviewRoutes from "./routes/aiReview.js";
 import prReviewRoutes from "./routes/prReviews.js";
 import adminRoutes from "./routes/admin.js";
-import mcpRoute from "./mcp/httpRoute.js";
+import authRoutes from "./routes/auth.js";
+import { isMultiTenant } from "./db/pool.js";
+import { runMigrations } from "./db/migrate.js";
 
-// Load backend/.env if present, without adding a dependency.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envPath = path.join(__dirname, "..", ".env");
 if (fs.existsSync(envPath)) {
@@ -36,8 +37,11 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-app.get("/api/health", (req, res) => res.json({ ok: true }));
+app.get("/api/health", (req, res) =>
+  res.json({ ok: true, multiTenant: isMultiTenant() })
+);
 
+app.use("/api", authRoutes);
 app.use("/api", configRoutes);
 app.use("/api", bitbucketRoutes);
 app.use("/api", jiraRoutes);
@@ -45,13 +49,11 @@ app.use("/api", syncRoutes);
 app.use("/api", aiReviewRoutes);
 app.use("/api", prReviewRoutes);
 app.use("/api", adminRoutes);
-app.use("/mcp", mcpRoute);
 
 app.use((req, res) => {
   res.status(404).json({ error: { message: "Not found" } });
 });
 
-// Central error handler: never let a raw stack trace or crash reach the client.
 app.use((err, req, res, next) => {
   logError(`${req.method} ${req.originalUrl} failed:`, err.message);
 
@@ -64,7 +66,31 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: { message: err.message || "Internal server error" } });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  log(`AI Review Performance backend listening on http://localhost:${PORT} (LAN: 0.0.0.0:${PORT})`);
-});
+async function start() {
+  if (isMultiTenant()) {
+    if (!process.env.CONFIG_ENCRYPTION_KEY || !/^[0-9a-fA-F]{64}$/.test(process.env.CONFIG_ENCRYPTION_KEY)) {
+      logError(
+        "CONFIG_ENCRYPTION_KEY must be a 64-char hex string. Generate with: openssl rand -hex 32"
+      );
+      process.exit(1);
+    }
+    if (!process.env.JWT_SECRET) {
+      log("Warning: JWT_SECRET is unset; using a weak default. Set JWT_SECRET in .env.");
+    }
+    try {
+      await runMigrations();
+      log("Multi-tenant mode: PostgreSQL.");
+    } catch (err) {
+      logError("Failed to init PostgreSQL:", err.message);
+      process.exit(1);
+    }
+  } else {
+    log("Single-tenant mode: no DATABASE_URL — using local JSON files (no app login).");
+  }
 
+  app.listen(PORT, "0.0.0.0", () => {
+    log(`AI Review Performance backend listening on http://localhost:${PORT} (LAN: 0.0.0.0:${PORT})`);
+  });
+}
+
+start();

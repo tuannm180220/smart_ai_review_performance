@@ -157,7 +157,7 @@ export async function reviewUser({ author, from, to, mode, authorUsername }) {
 
   const reviewMode = mode === "diffs" ? "diffs" : "pr-reviews";
   const store = await getStore();
-  const allRecords = store.getAll();
+  const allRecords = await store.getAll();
   const userRecords = filterUserRecords(allRecords, author, from, to, authorUsername);
 
   if (!userRecords.length && reviewMode === "diffs") {
@@ -253,7 +253,7 @@ async function reviewUserFromSavedPrReviews({
   userRecords,
   metrics,
 }) {
-  const prReviews = listPrReviews({ author, authorUsername, from, to }).map((r) => ({
+  const prReviews = (await listPrReviews({ author, authorUsername, from, to })).map((r) => ({
     repo: r.repo,
     prId: r.prId,
     title: r.title,
@@ -338,8 +338,8 @@ export async function listAuthors() {
     }
     seen.push({ author, authorUsername });
   }
-  for (const r of store.getAll()) add(r.author, r.authorUsername);
-  for (const r of listPrReviews()) add(r.author, r.authorUsername);
+  for (const r of await store.getAll()) add(r.author, r.authorUsername);
+  for (const r of await listPrReviews()) add(r.author, r.authorUsername);
   try {
     for (const m of await listWorkspaceMembers()) add(m.author, m.authorUsername);
   } catch (err) {

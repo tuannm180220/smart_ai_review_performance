@@ -1,0 +1,28 @@
+# Local Postgres for AI Review Performance — uses host port 5433
+# (default 5432 is often taken by another Postgres install).
+#
+# Start:  docker compose up -d
+# Stop:   docker compose down
+# Logs:   docker compose logs -f postgres
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-review-postgres
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: ai_review
+      POSTGRES_PASSWORD: ai_review_local
+      POSTGRES_DB: ai_review
+    volumes:
+      - ai_review_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_review -d ai_review"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ai_review_pgdata:

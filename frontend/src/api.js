@@ -1,11 +1,17 @@
 // In dev, Vite proxies "/api" to the backend (see vite.config.js). In production the
 // frontend and backend are separate deployments, so point this at the backend's URL.
+import { getToken, clearSession } from "./auth.js";
+
 const BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
 async function request(path, options = {}) {
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers,
   });
 
   let body = null;
@@ -13,6 +19,18 @@ async function request(path, options = {}) {
     body = await res.json();
   } catch {
     // no JSON body (e.g. 204)
+  }
+
+  // Only our JWT middleware uses code UNAUTHORIZED. Atlassian 401s must not clear the app session.
+  if (
+    res.status === 401 &&
+    body?.error?.code === "UNAUTHORIZED" &&
+    !path.startsWith("/auth/")
+  ) {
+    clearSession();
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.assign("/login");
+    }
   }
 
   if (!res.ok) {
@@ -28,6 +46,13 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  authStatus: () => request("/auth/status"),
+  login: (email, password) =>
+    request("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  register: (email, password) =>
+    request("/auth/register", { method: "POST", body: JSON.stringify({ email, password }) }),
+  me: () => request("/auth/me"),
+
   getConfig: () => request("/config"),
   saveConfig: (data) => request("/config", { method: "POST", body: JSON.stringify(data) }),
   testConnections: () => request("/config/test", { method: "POST" }),

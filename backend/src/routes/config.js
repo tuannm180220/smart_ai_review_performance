@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { readConfig, writeConfig, redactedConfig } from "../config/configStore.js";
+import { writeConfig, redactedConfig, readConfig } from "../config/configStore.js";
 import {
   testJiraConnection,
   testBitbucketConnection,
@@ -7,10 +7,13 @@ import {
   verifyBitbucketWorkspace,
 } from "../services/atlassian.js";
 import { asyncHandler } from "../lib/asyncHandler.js";
+import { requireUserAuth } from "../lib/userAuth.js";
 
 const router = Router();
 
 const AI_PROVIDERS = new Set(["claude", "codex", "cursor"]);
+
+router.use(requireUserAuth);
 
 router.get(
   "/config",
@@ -44,18 +47,18 @@ router.post(
 
     const update = {};
     if (atlassianEmail !== undefined) update.atlassianEmail = atlassianEmail;
-    if (atlassianApiToken) update.atlassianApiToken = atlassianApiToken; // only overwrite if provided
+    if (atlassianApiToken) update.atlassianApiToken = atlassianApiToken;
     if (jiraBaseUrl !== undefined) update.jiraBaseUrl = jiraBaseUrl;
     if (jiraStoryPointsField !== undefined) update.jiraStoryPointsField = jiraStoryPointsField;
     if (bitbucketWorkspace !== undefined) update.bitbucketWorkspace = bitbucketWorkspace;
     if (bitbucketApiToken) update.bitbucketApiToken = bitbucketApiToken;
     if (aiProvider !== undefined) update.aiProvider = aiProvider;
-    if (aiApiKey) update.aiApiKey = aiApiKey; // only overwrite if provided
+    if (aiApiKey) update.aiApiKey = aiApiKey;
     if (aiModel !== undefined) update.aiModel = aiModel;
     if (aiUseClaudeSubscription !== undefined) update.aiUseClaudeSubscription = Boolean(aiUseClaudeSubscription);
     if (localRepoRoot !== undefined) update.localRepoRoot = localRepoRoot;
 
-    writeConfig(update);
+    await writeConfig(update);
     res.json(redactedConfig());
   })
 );

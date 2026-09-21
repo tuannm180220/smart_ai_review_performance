@@ -4,7 +4,7 @@ import { verifyCredentials, createToken, requireAdminAuth } from "../lib/adminAu
 import { getUsageTimeSeries, getUsageSummary } from "../services/usageService.js";
 import { getTopVulnerabilities } from "../services/vulnerabilityService.js";
 import { getImpactTrend } from "../services/impactService.js";
-import { listMappings, setMapping } from "../store/authorEmailStore.js";
+import { listMappings, setMappingGlobal } from "../store/authorEmailStore.js";
 
 const router = Router();
 
@@ -26,14 +26,14 @@ router.get(
   "/admin/usage",
   asyncHandler(async (req, res) => {
     const { granularity, from, to } = req.query;
-    res.json(getUsageTimeSeries({ granularity: granularity || "day", from, to }));
+    res.json(await getUsageTimeSeries({ granularity: granularity || "day", from, to }));
   })
 );
 
 router.get(
   "/admin/summary",
   asyncHandler(async (req, res) => {
-    res.json(getUsageSummary());
+    res.json(await getUsageSummary());
   })
 );
 
@@ -63,7 +63,7 @@ router.post(
   "/admin/authors/:key",
   asyncHandler(async (req, res) => {
     const { email } = req.body || {};
-    res.json(setMapping(req.params.key, email || null));
+    res.json(await setMappingGlobal(req.params.key, email || null));
   })
 );
 

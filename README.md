@@ -17,11 +17,13 @@ deployment via Render environment variables, not the Settings page — see
 - **Frontend**: React (Vite), `http://localhost:5173`
 - **Backend**: Node.js + Express, `http://localhost:3001` — proxies all Atlassian
   calls so tokens never touch the browser and CORS never comes up.
-- **Storage**: SQLite via `better-sqlite3` when it installs cleanly on your
-  platform, otherwise a JSON file (`backend/data/records.json`) — the app
-  picks automatically at boot and logs which one it's using.
-- **Auth**: Basic Auth (email + API token) against both Jira Cloud REST API v3
-  and Bitbucket Cloud REST API v2.0 — separate tokens for each. Bitbucket app
+- **Storage**: **PostgreSQL** multi-tenant when `DATABASE_URL` is set (per-user
+  Settings + synced records). Without it — shared local JSON files (no app login).
+- **Auth (multi-tenant)**: App users register/login (`/login`); JWT Bearer on
+  `/api/*`. Admin dashboard remains a separate env-based account at `/admin`.
+- **Auth (Atlassian)**: Basic Auth (email + API token) against both Jira Cloud REST API v3
+  and Bitbucket Cloud REST API v2.0 — separate tokens for each, stored **per app user**
+  in Postgres. Bitbucket app
   passwords are deprecated (fully removed July 28, 2026) — use a Bitbucket
   API token instead.
 
@@ -39,7 +41,8 @@ cd backend && npm install && npm run dev    # http://localhost:3001
 cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
-Open `http://localhost:5173`, go to **Settings**, and fill in:
+Open `http://localhost:5173`. With `DATABASE_URL` set, sign in or register
+first. Then go to **Settings**, and fill in:
 
 - Atlassian email
 - Atlassian API token ([id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens)) — for Jira
@@ -58,10 +61,28 @@ Open `http://localhost:5173`, go to **Settings**, and fill in:
 Click **Save settings**, then **Test connection** to confirm Jira and
 Bitbucket both come back ✅.
 
-Credentials are written to `backend/data/config.json`, which is gitignored
-and never leaves your machine except in requests to `*.atlassian.net` and
+Credentials are written to encrypted columns in PostgreSQL (`user_configs`) when
+`DATABASE_URL` is set, or to `backend/data/config.json` in single-tenant mode.
+They never leave your machine/backend except in requests to `*.atlassian.net` and
 `api.bitbucket.org`. They are never logged (see `backend/src/lib/logger.js`,
 which redacts token fields before printing).
+
+## Multi-tenant (PostgreSQL)
+
+Each person has their own Atlassian credentials and synced data in Postgres.
+
+Guide: [`docs/local-multi-tenant.md`](docs/local-multi-tenant.md) · Docker on
+port 5433: [`docs/local-postgres.md`](docs/local-postgres.md).
+
+```bash
+docker compose up -d
+cd backend
+npm run migrate
+npm run seed-local -- --email you@example.com --password 'your-password'
+npm run dev
+```
+
+Two browsers → two accounts → Settings/Sync stay separate.
 
 ## Deploy to Render
 
@@ -88,10 +109,12 @@ tier's disk is ephemeral** — anything the Settings page writes to
 
 | Key | Notes |
 | --- | --- |
-| `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN`, `JIRA_BASE_URL` | Jira |
+| `DATABASE_URL`, `JWT_SECRET`, `CONFIG_ENCRYPTION_KEY`, `ALLOW_REGISTER` | Multi-tenant Postgres |
+| `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN`, `JIRA_BASE_URL` | Jira (defaults / single-tenant) |
 | `BITBUCKET_WORKSPACE`, `BITBUCKET_API_TOKEN` | Bitbucket (separate token — see Setup) |
 | `JIRA_STORY_POINTS_FIELD` | Optional, defaults to `customfield_10016` |
 | `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL` | AI Review tab |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET` | Admin dashboard |
 
 If persistent storage matters (so synced PR/ticket data survives restarts),
 attach a Render [persistent disk](https://render.com/docs/disks) mounted at
@@ -191,7 +214,11 @@ Vite on every build, so no dashboard configuration is needed.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET/POST | `/api/config` | Read/write local settings |
+| GET | `/api/auth/status` | Whether multi-tenant mode is on / register allowed |
+| POST | `/api/auth/register` | Create an app user (when `ALLOW_REGISTER` is not `false`) |
+| POST | `/api/auth/login` | Login → JWT |
+| GET | `/api/auth/me` | Current user |
+| GET/POST | `/api/config` | Read/write settings (per user when multi-tenant) |
 | POST | `/api/config/test` | Test Jira + Bitbucket auth |
 | GET | `/api/config/jira-projects` | List accessible Jira projects |
 | GET | `/api/config/bitbucket-workspaces` | List accessible Bitbucket workspaces |
@@ -233,13 +260,20 @@ and flagging multiple matches.
 ```
 backend/
   src/
-    server.js            Express app + error handling, starts the PR-watch scheduler
-    lib/                 HTTP client w/ retry, ADF renderer, key extractor, logger, PR-watch scheduler
-    config/               Local config persistence
-    services/             Bitbucket, Jira, sync-orchestration, and AI provider/review logic
-    store/                SQLite/JSON record storage abstraction, daily PR-watch storage
-    routes/                /api/* route handlers
-    tests/                 node:test unit tests
+    server.js            Express app; migrates Postgres on boot when DATABASE_URL is set
+    db/                  PostgreSQL pool + schema migrations
+    lib/                 HTTP client, auth (user + admin), crypto, logger, …
+    config/              Config persistence (per-user Postgres or shared file)
+    services/            Bitbucket, Jira, sync, AI review
+    store/               Record / PR-review / usage stores
+    routes/              /api/* route handlers
+    tests/               node:test unit tests
+  scripts/
+    importLocalData.js      Import legacy JSON data into one user
+    seedAccountFromLocal.js Seed config.json into Postgres user
+docs/
+  local-multi-tenant.md
+  local-postgres.md
 frontend/
   src/
     pages/                 Settings, Explore PRs, Sync & Records, By Ticket, AI Review, PR Watch
@@ -248,91 +282,6 @@ frontend/
     context/                Toast notifications
     api.js                  fetch wrapper for the backend
 ```
-
-## MCP server (review PRs from your own Claude Code, no AI_API_KEY)
-
-This project's data — PRs, diffs, linked Jira tickets, synced records — is
-exposed as MCP tools, so anyone can review pull requests and gauge ticket
-complexity directly from their own Claude Code in VS Code, using their own
-Claude subscription/login instead of the `AI_API_KEY` the web **AI Review**
-tab needs. The MCP server only talks to *this backend's* REST API — it holds
-no Jira/Bitbucket/AI credentials of its own, and reuses whatever the backend
-is already configured with.
-
-Tools exposed: `list_repos`, `list_prs`, `get_pr_details`,
-`get_pr_review_context` (full evidence bundle + diff, the same context the
-web tab would otherwise send to an AI provider), `save_pr_review` (publishes
-the review Claude Code wrote into the same store the web AI Review button
-writes to, so it shows up in **PR Watch** / "View report" for everyone —
-without this, a VS Code-written review only lives in that person's chat),
-`get_ticket` (description, story points, status history/reopens — this
-project's complexity signal), `list_records`, `list_records_by_ticket`,
-`run_sync`.
-
-Note: clicking **Review** in the web UI can never trigger a teammate's local
-VS Code — a browser can't launch or control someone's editor. The two review
-paths (web button vs. VS Code + MCP) are triggered independently; the shared
-store via `save_pr_review` is what makes their *output* land in the same
-place.
-
-### Shared setup (recommended — teammates run nothing locally)
-
-The backend serves the MCP endpoint itself at `POST /mcp` (Streamable HTTP,
-`backend/src/mcp/httpRoute.js`), right alongside the existing REST API — so
-once it's deployed (e.g. the Render backend in **Deploy to Render** below),
-every teammate just points their own Claude Code at that URL. No one clones
-the repo, installs Node, or runs `npm run dev` to use it.
-
-1. On the shared backend's host, set `MCP_AUTH_TOKEN` to a random shared
-   secret (env var, same place as `AI_API_KEY` etc.) and redeploy. Anyone who
-   has this token can call every tool below (read PR/ticket data, trigger a
-   sync), so hand it out over a private channel (password manager, DM), not
-   in this repo.
-2. This repo's root `.mcp.json` already registers the server:
-   ```json
-   {
-     "mcpServers": {
-       "ai-review-performance": {
-         "type": "http",
-         "url": "https://smart-ai-review-backend.onrender.com/mcp",
-         "headers": { "Authorization": "Bearer ${MCP_AUTH_TOKEN}" }
-       }
-     }
-   }
-   ```
-   Update the `url` if your team's backend lives elsewhere.
-3. Each teammate sets `MCP_AUTH_TOKEN` in their own shell/OS environment
-   (never committed) and opens this repo in VS Code. Claude Code prompts to
-   approve the project's MCP server the first time — approve it.
-4. Ask Claude Code things like *"review PR 42 in repo my-service"* or *"how
-   complex is ticket PROJ-123?"* — it calls `get_pr_review_context` /
-   `get_ticket` to pull real diffs, commits, comments, and ticket data, then
-   writes the review itself, on that person's own Claude Code login.
-
-### Local/solo alternative
-
-Prefer running everything yourself instead of a shared backend? Swap the
-`.mcp.json` entry for a locally-spawned stdio server instead of the remote
-URL:
-
-```json
-{
-  "mcpServers": {
-    "ai-review-performance": {
-      "command": "node",
-      "args": ["backend/src/mcp/server.js"]
-    }
-  }
-}
-```
-
-This talks to `http://localhost:3001/api` by default (override with
-`MCP_BACKEND_URL`), so it needs your own `cd backend && npm run dev` running.
-
-Either way, this is the recommended path for teammates instead of
-configuring `AI_API_KEY`/`AI_USE_CLAUDE_SUBSCRIPTION` for the web AI Review
-tab — each person's own Claude Code does the review on their own login, with
-no shared key or subscription contention.
 
 ## AI providers (AI Review tab)
 

@@ -54,10 +54,25 @@ export function createAtlassianClient({ baseURL, email, token }) {
     }
 
     if (response.status >= 400) {
+      // Map Atlassian 401 → 502 so clients never confuse it with app JWT auth failures.
+      const status =
+        response.status === 401 ? 502 : response.status;
+      const code =
+        response.status === 401
+          ? "ATLASSIAN_UNAUTHORIZED"
+          : response.status === 404
+            ? "NOT_FOUND"
+            : response.status === 403
+              ? "FORBIDDEN"
+              : "API_ERROR";
+      const hint =
+        response.status === 401
+          ? " (check Atlassian email + the matching Jira/Bitbucket API token in Settings)"
+          : "";
       throw new AtlassianApiError(
-        `Atlassian API error ${response.status} on ${config.method?.toUpperCase()} ${config.url}`,
-        response.status,
-        response.status === 404 ? "NOT_FOUND" : response.status === 403 ? "FORBIDDEN" : "API_ERROR",
+        `Atlassian API error ${response.status} on ${config.method?.toUpperCase()} ${config.url}${hint}`,
+        status,
+        code,
         response.data
       );
     }
@@ -70,3 +85,4 @@ export function createAtlassianClient({ baseURL, email, token }) {
     post: (url, data, config) => requestWithRetry({ ...config, method: "post", url, data }),
   };
 }
+

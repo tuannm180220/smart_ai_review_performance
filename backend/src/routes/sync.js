@@ -2,8 +2,11 @@ import { Router } from "express";
 import { runSync } from "../services/syncService.js";
 import { getStore } from "../store/recordStore.js";
 import { asyncHandler } from "../lib/asyncHandler.js";
+import { requireUserAuth } from "../lib/userAuth.js";
 
 const router = Router();
+
+router.use(requireUserAuth);
 
 router.post(
   "/sync",
@@ -20,7 +23,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const store = await getStore();
     const { repo } = req.query;
-    const records = repo ? store.getByRepo(repo) : store.getAll();
+    const records = repo ? await store.getByRepo(repo) : await store.getAll();
     res.json(records);
   })
 );
@@ -30,7 +33,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const store = await getStore();
     const { repo } = req.query;
-    const records = repo ? store.getByRepo(repo) : store.getAll();
+    const records = repo ? await store.getByRepo(repo) : await store.getAll();
 
     const groups = new Map();
     for (const record of records) {
@@ -60,7 +63,6 @@ router.get(
         createdAt: record.createdAt,
         mergedAt: record.mergedAt,
       });
-      // Keep the most up-to-date ticket snapshot across all PRs referencing it.
       if (record.linkStatus === "linked") {
         group.linkStatus = "linked";
         group.ticketStatus = record.ticketStatus;

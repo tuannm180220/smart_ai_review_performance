@@ -10,7 +10,7 @@ function monthKey(iso) {
  */
 export async function getImpactTrend() {
   const store = await getStore();
-  const records = store.getAll().filter((r) => r.createdAt);
+  const records = (await store.getAll()).filter((r) => r.createdAt);
 
   const buckets = new Map();
   for (const r of records) {

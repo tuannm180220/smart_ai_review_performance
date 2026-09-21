@@ -4,6 +4,7 @@ import { ConfigStatusProvider, useConfigStatus } from "./context/ConfigStatusCon
 import SettingsPage from "./pages/SettingsPage.jsx";
 import SyncPage from "./pages/SyncPage.jsx";
 import PerformanceReviewPage from "./pages/PerformanceReviewPage.jsx";
+import { UserMenu } from "./pages/LoginPage.jsx";
 
 const TABS = [
   { key: "sync", label: "Review PR", Component: SyncPage, requires: "integrations" },
@@ -70,7 +71,10 @@ function Shell() {
         </div>
       )}
       <header className="app-header">
-        <h1>AI Review Performance</h1>
+        <div className="app-header-row">
+          <h1>AI Review Performance</h1>
+          <UserMenu />
+        </div>
         <nav className="tab-nav">
           {TABS.map((t) => {
             const locked = isLocked(t, configStatus);
@@ -91,7 +95,6 @@ function Shell() {
         </nav>
       </header>
       <main>
-        {/* Unlocked tabs stay mounted (just hidden) so switching never discards page state. */}
         {TABS.map((t) => {
           const locked = isLocked(t, configStatus);
           return (

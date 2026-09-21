@@ -89,7 +89,7 @@ export async function runSync({ repo, from, to, author, state, onProgress }) {
   for (const pr of prs) {
     try {
       const record = await buildRecord({ repo, pr });
-      store.upsert(record);
+      await store.upsert(record);
       results.push(record);
     } catch (err) {
       logError(`Sync failed for PR #${pr.id} in ${repo}:`, err.message);

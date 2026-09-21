@@ -1,26 +1,37 @@
-const SECRET_KEYS = new Set([
-  "atlassianApiToken",
-  "bitbucketApiToken",
-  "aiApiKey",
-  "authorization",
-  "Authorization",
-]);
+const SECRET_KEYS = /token|password|api[_-]?key|secret|authorization/i;
 
 function redact(value) {
-  if (value && typeof value === "object") {
-    const clone = Array.isArray(value) ? [] : {};
+  if (value == null) return value;
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(redact);
+  if (typeof value === "object") {
+    const out = {};
     for (const [k, v] of Object.entries(value)) {
-      clone[k] = SECRET_KEYS.has(k) ? "***redacted***" : redact(v);
+      out[k] = SECRET_KEYS.test(k) ? "[redacted]" : redact(v);
     }
-    return clone;
+    return out;
   }
   return value;
 }
 
+function formatArgs(args) {
+  return args.map((a) => {
+    if (a instanceof Error) return a.message;
+    if (a && typeof a === "object") {
+      try {
+        return JSON.stringify(redact(a));
+      } catch {
+        return String(a);
+      }
+    }
+    return a;
+  });
+}
+
 export function log(...args) {
-  console.log(new Date().toISOString(), "-", ...args.map(redact));
+  console.log(new Date().toISOString(), "-", ...formatArgs(args));
 }
 
 export function logError(...args) {
-  console.error(new Date().toISOString(), "-", ...args.map(redact));
+  console.error(new Date().toISOString(), "-", ...formatArgs(args));
 }

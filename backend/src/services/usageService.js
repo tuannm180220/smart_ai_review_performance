@@ -18,8 +18,8 @@ function withinRange(iso, from, to) {
  * and per-user table. Events without a resolved email are grouped under "unmapped" so
  * admins can see there's attribution work to do rather than silently dropping them.
  */
-export function getUsageTimeSeries({ granularity = "day", from, to } = {}) {
-  const events = getAllEvents().filter((e) => (from || to ? withinRange(e.timestamp, from, to) : true));
+export async function getUsageTimeSeries({ granularity = "day", from, to } = {}) {
+  const events = (await getAllEvents()).filter((e) => (from || to ? withinRange(e.timestamp, from, to) : true));
 
   const buckets = new Map(); // bucketKey -> { pr_review, performance_review }
   const users = new Map(); // email -> { pr_review, performance_review }
@@ -42,8 +42,8 @@ export function getUsageTimeSeries({ granularity = "day", from, to } = {}) {
   return { series, byUser };
 }
 
-export function getUsageSummary() {
-  const events = getAllEvents();
+export async function getUsageSummary() {
+  const events = await getAllEvents();
 
   const byType = { pr_review: 0, performance_review: 0 };
   const byUser = new Map();

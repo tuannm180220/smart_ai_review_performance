@@ -63,31 +63,35 @@ export default function SettingsPage() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  async function persistForm() {
+    await api.saveConfig(form);
+    setForm((f) => ({ ...f, atlassianApiToken: "", bitbucketApiToken: "", aiApiKey: "" }));
+    const cfg = await configStatus.refresh();
+    setTokenSet({
+      atlassian: cfg.atlassianApiTokenSet,
+      bitbucket: cfg.bitbucketApiTokenSet,
+      ai: cfg.aiApiKeySet,
+    });
+    return cfg;
+  }
+
   async function handleVerifyWorkspace() {
     if (!form.bitbucketWorkspace) return toast.error("Type a workspace slug first.");
     if (!form.atlassianEmail) return toast.error("Fill in Atlassian email first.");
     if (!tokenSet.bitbucket && !form.bitbucketApiToken.trim()) {
-      return toast.error("Paste your Bitbucket API token, then click Save settings before Verify.");
+      return toast.error("Paste your Bitbucket API token, then Verify (settings are saved automatically).");
     }
 
     setVerifyingWorkspace(true);
     setWorkspaceVerified(null);
     try {
-      // Verify reads saved backend config, not the unsaved form — persist first if needed.
-      if (form.bitbucketApiToken.trim() || !tokenSet.bitbucket) {
-        await api.saveConfig(form);
-        setForm((f) => ({ ...f, atlassianApiToken: "", bitbucketApiToken: "", aiApiKey: "" }));
-        const cfg = await configStatus.refresh();
-        setTokenSet({
-          atlassian: cfg.atlassianApiTokenSet,
-          bitbucket: cfg.bitbucketApiTokenSet,
-          ai: cfg.aiApiKeySet,
-        });
-      }
-      const result = await api.verifyBitbucketWorkspace(form.bitbucketWorkspace);
+      // Verify uses backend-stored credentials — always persist the form first.
+      await persistForm();
+      const result = await api.verifyBitbucketWorkspace(form.bitbucketWorkspace.trim());
       setWorkspaceVerified(result);
       toast.success(`Found workspace "${result.name}".`);
     } catch (err) {
+      setWorkspaceVerified(null);
       toast.error(err.message);
     } finally {
       setVerifyingWorkspace(false);
@@ -98,15 +102,8 @@ export default function SettingsPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.saveConfig(form);
+      await persistForm();
       toast.success("Settings saved.");
-      setForm((f) => ({ ...f, atlassianApiToken: "", bitbucketApiToken: "", aiApiKey: "" }));
-      const cfg = await configStatus.refresh();
-      setTokenSet({
-        atlassian: cfg.atlassianApiTokenSet,
-        bitbucket: cfg.bitbucketApiTokenSet,
-        ai: cfg.aiApiKeySet,
-      });
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -115,15 +112,28 @@ export default function SettingsPage() {
   }
 
   async function handleTest() {
+    if (!form.atlassianEmail) return toast.error("Fill in Atlassian email first.");
+    if (!form.jiraBaseUrl) return toast.error("Fill in Jira base URL first.");
+    if (!tokenSet.atlassian && !form.atlassianApiToken.trim()) {
+      return toast.error("Paste your Jira (Atlassian) API token before testing.");
+    }
+    if (!tokenSet.bitbucket && !form.bitbucketApiToken.trim()) {
+      return toast.error("Paste your Bitbucket API token before testing.");
+    }
+
     setTesting(true);
     setTestResult(null);
     try {
+      await persistForm();
       const result = await api.testConnections();
       setTestResult(result);
       if (result.jira?.ok && result.bitbucket?.ok) {
         toast.success("Both connections succeeded.");
       } else {
-        toast.error("One or more connections failed. See details below.");
+        const parts = [];
+        if (!result.jira?.ok) parts.push(`Jira: ${result.jira?.message || "failed"}`);
+        if (!result.bitbucket?.ok) parts.push(`Bitbucket: ${result.bitbucket?.message || "failed"}`);
+        toast.error(parts.join(" · ") || "One or more connections failed.");
       }
       await configStatus.refresh();
     } catch (err) {
@@ -137,8 +147,11 @@ export default function SettingsPage() {
     <div className="page">
       <h2>Settings</h2>
       <p className="muted">
-        Credentials are stored locally in <code>backend/data/config.json</code> (gitignored) and are only ever
-        sent to Atlassian's APIs. Jira and Bitbucket use separate tokens.
+        Credentials are stored per login account in PostgreSQL. Token fields stay blank
+        after save for security — if you see “already set”, leave them empty unless
+        replacing. Verify and Test connection save the form automatically. Each app
+        account needs its own Jira + Bitbucket tokens (they are not shared between logins).
+        Tokens are only sent to Atlassian&apos;s APIs; Jira and Bitbucket use separate tokens.
       </p>
 
       <form className="form-grid" onSubmit={handleSave}>

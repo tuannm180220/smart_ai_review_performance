@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { matchesAuthor } from "../lib/authorIdentity.js";
+import { isDatabaseEnabled, query } from "../db/pool.js";
+import { getRequestUserId } from "../lib/requestContext.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "..", "data");
@@ -14,7 +17,7 @@ export function reviewId(repo, prId) {
   return `${repo}#${prId}`;
 }
 
-function readAll() {
+function readAllFile() {
   ensureDataDir();
   if (!fs.existsSync(FILE_PATH)) return {};
   try {
@@ -24,12 +27,10 @@ function readAll() {
   }
 }
 
-function writeAll(reviews) {
+function writeAllFile(reviews) {
   ensureDataDir();
   fs.writeFileSync(FILE_PATH, JSON.stringify(reviews, null, 2), "utf-8");
 }
-
-import { matchesAuthor } from "../lib/authorIdentity.js";
 
 function withinRange(iso, from, to) {
   if (!iso) return false;
@@ -40,23 +41,6 @@ function withinRange(iso, from, to) {
   return true;
 }
 
-export function upsertPrReview(review) {
-  const all = readAll();
-  const id = reviewId(review.repo, review.prId);
-  const next = {
-    ...review,
-    id,
-    reviewedAt: review.reviewedAt || new Date().toISOString(),
-  };
-  all[id] = next;
-  writeAll(all);
-  return next;
-}
-
-export function getPrReview(repo, prId) {
-  return readAll()[reviewId(repo, prId)] || null;
-}
-
 export function filterPrReviews(reviews, { author, authorUsername, from, to, repo } = {}) {
   return (reviews || [])
     .filter((r) => (repo ? r.repo === repo : true))
@@ -65,14 +49,53 @@ export function filterPrReviews(reviews, { author, authorUsername, from, to, rep
     .sort((a, b) => new Date(b.prCreatedAt || b.reviewedAt) - new Date(a.prCreatedAt || a.reviewedAt));
 }
 
-export function listPrReviews(filters = {}) {
-  return filterPrReviews(Object.values(readAll()), filters);
+async function readAll() {
+  if (!isDatabaseEnabled()) return readAllFile();
+  const userId = getRequestUserId();
+  if (!userId) return {};
+  const result = await query(`SELECT id, data FROM pr_reviews WHERE user_id = $1`, [userId]);
+  const map = {};
+  for (const row of result.rows) {
+    map[row.id] = typeof row.data === "string" ? JSON.parse(row.data) : row.data;
+  }
+  return map;
 }
 
-/** Compact status map keyed by `repo#prId` for table badges. */
-export function listPrReviewStatuses({ repo } = {}) {
+export async function upsertPrReview(review) {
+  const id = reviewId(review.repo, review.prId);
+  const next = {
+    ...review,
+    id,
+    reviewedAt: review.reviewedAt || new Date().toISOString(),
+  };
+  if (isDatabaseEnabled()) {
+    const userId = getRequestUserId();
+    if (!userId) throw new Error("userId required to upsert PR review");
+    await query(
+      `INSERT INTO pr_reviews (user_id, id, data) VALUES ($1, $2, $3::jsonb)
+       ON CONFLICT (user_id, id) DO UPDATE SET data = EXCLUDED.data`,
+      [userId, id, JSON.stringify(next)]
+    );
+    return next;
+  }
+  const all = readAllFile();
+  all[id] = next;
+  writeAllFile(all);
+  return next;
+}
+
+export async function getPrReview(repo, prId) {
+  const all = await readAll();
+  return all[reviewId(repo, prId)] || null;
+}
+
+export async function listPrReviews(filters = {}) {
+  return filterPrReviews(Object.values(await readAll()), filters);
+}
+
+export async function listPrReviewStatuses({ repo } = {}) {
   const statuses = {};
-  for (const review of Object.values(readAll())) {
+  for (const review of Object.values(await readAll())) {
     if (repo && review.repo !== repo) continue;
     statuses[review.id] = {
       reviewedAt: review.reviewedAt,

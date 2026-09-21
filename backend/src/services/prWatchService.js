@@ -31,7 +31,7 @@ export async function pollNewPrs() {
       continue;
     }
     for (const pr of prs) {
-      const created = addItemIfNew({
+      const created = await addItemIfNew({
         repo: repo.slug,
         prId: pr.id,
         title: pr.title,
@@ -50,12 +50,12 @@ export async function pollNewPrs() {
   return added;
 }
 
-export function listWatchItems() {
+export async function listWatchItems() {
   return getWatchItems();
 }
 
 export async function reviewWatchedPr({ repo, prId }) {
-  const item = getWatchItem(repo, prId);
+  const item = await getWatchItem(repo, prId);
   if (!item) throw new AtlassianApiError("PR not found in today's watch list.", 404, "NOT_FOUND");
 
   const saved = await reviewPullRequest({

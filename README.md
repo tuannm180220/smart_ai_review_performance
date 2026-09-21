@@ -278,6 +278,11 @@ token from `POST /api/auth/login` first. Raw spec: `/api-docs.json`
 | GET | `/api/pr-watch` | Today's watched PRs (resets at UTC midnight) with review status |
 | POST | `/api/pr-watch/refresh` | Poll Bitbucket now instead of waiting for the 30-minute scheduler |
 | POST | `/api/pr-watch/:repo/:id/review` | Run an AI critique of one watched PR and persist it |
+| GET | `/api/pr-review-prompts` | List repos that have a custom review prompt saved |
+| GET | `/api/pr-review-prompts/default` | The built-in default review prompt text |
+| GET | `/api/pr-review-prompts/:repo` | Get the review prompt for a repo (custom, or the default) |
+| PUT | `/api/pr-review-prompts/:repo` | Create/update a repo's custom review prompt (typed or uploaded `.md`) |
+| DELETE | `/api/pr-review-prompts/:repo` | Remove a repo's custom prompt (reverts to the default) |
 
 Every Atlassian call goes through a shared HTTP client
 (`backend/src/lib/httpClient.js`) that retries 429/5xx responses with
@@ -309,7 +314,7 @@ backend/
     lib/                 HTTP client, auth (user + admin), crypto, logger, …
     config/              Config persistence (per-user Postgres or shared file)
     services/            Bitbucket, Jira, sync, AI review
-    store/               Record / PR-review / usage stores
+    store/               Record / PR-review / PR-review-prompt / usage stores
     routes/              /api/* route handlers
     tests/               node:test unit tests
   scripts/
@@ -320,7 +325,7 @@ docs/
   local-postgres.md
 frontend/
   src/
-    pages/                 Settings, Explore PRs, Sync & Records, By Ticket, AI Review, PR Watch
+    pages/                 Settings, Explore PRs, Sync & Records, By Ticket, AI Review, PR Watch, Review prompts
     components/            Shared UI (status badges, PR detail panel, Markdown renderer)
     lib/                   Small frontend helpers (e.g. default date-range calc)
     context/                Toast notifications
@@ -329,15 +334,36 @@ frontend/
 
 ## Review history (a review improves the next one)
 
-The web AI Review flow pulls the author's last 5 saved reviews
-(`getAuthorReviewHistory` in `backend/src/services/prReviewService.js`) —
-signals, labels, and top improvement from each — and feeds them into the
-prompt as retrospective context, so the reviewer can name a recurring
-pattern ("tests-missing, 3rd PR running") instead of treating each PR in
-isolation. This is plain SQL/JSON retrieval against the same `pr_reviews`
-data already being stored — no embeddings, vector DB, or extra API key.
-Every review saved via the AI Review/PR Watch buttons immediately becomes
-available as history for that author's next review; nothing extra to run.
+Every PR review saved via the AI Review/PR Watch buttons feeds two kinds of
+retrospective context into the *next* review's prompt — no extra step to run:
+
+- **Author history** — `getAuthorReviewHistory` in
+  `backend/src/services/prReviewService.js` pulls the same author's last 5
+  saved reviews (across repos) — signals, labels, and top improvement from
+  each — plain SQL/JSON retrieval against `pr_reviews`, no embeddings.
+- **Related PRs in the same repo** — `getRelatedRepoReviews` ranks that
+  repo's past reviews by text similarity to the current PR (ticket, title,
+  files touched) using a small local hashing-trick embedding
+  (`backend/src/lib/textEmbedding.js`) — no external embeddings API, vector
+  DB, or extra API key; the vector is just another field in the same
+  `pr_reviews` JSON. This is the "RAG" half: it surfaces recurring patterns
+  in a codebase area even for a first-time contributor there.
+
+Either way, the reviewer can name a recurring pattern ("tests-missing, 3rd
+PR running in this area") instead of treating each PR in isolation — while
+being told explicitly not to re-score a past PR based on this context.
+
+## Custom review prompts (per repo)
+
+Settings → **Review prompts** lets you override the AI's reviewer
+persona/instructions per Bitbucket repo — type your own text or upload a
+`.md` file. Saved per user (and per repo) in `pr_review_prompts`
+(`backend/src/store/prReviewPromptStore.js`), with the same Postgres/local-
+JSON dual storage as the rest of the app. Only the "persona" half of the
+system prompt is replaceable (`DEFAULT_REVIEW_PERSONA` in
+`backend/src/services/prReviewPrompt.js`) — the factuality rules and the
+required JSON output shape always stay enforced, so a custom prompt can't
+break parsing of the saved review.
 
 ## AI providers (AI Review tab)
 

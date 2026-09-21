@@ -176,8 +176,10 @@ body {
 }
 
 .form-grid .field-input input,
-.form-grid .field-input select {
+.form-grid .field-input select,
+.form-grid .field-input textarea {
   width: 100%;
+  box-sizing: border-box;
 }
 
 .field-input-row {

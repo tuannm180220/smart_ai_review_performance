@@ -1,19 +1,27 @@
 import { PR_REVIEW_SIGNALS } from "../lib/prReviewSchema.js";
 
-export function buildPrReviewPrompt({ evidence, prDiff, history }) {
-  const system = [
-    "You are a staff engineer writing a review of ONE pull request.",
-    "This review has two jobs: (1) give the author concrete improvement points for this PR;",
-    "(2) produce durable signals a later member review can aggregate — habits, not one-off process noise.",
-    "Use only the evidence and the attached unified PR diff. Never invent files, tests, comments, or ticket facts.",
-    "Prefer the diff over metadata. If the diff is missing or truncated, say so — do not pick excellent completeness.",
-    "Ignore lockfiles, generated files, and “PR not yet approved” unless they hide a real engineering issue.",
-    "Strengths must be reusable skills (scope discipline, tests, error handling, clarity), not “title matches ticket”.",
-    "Improvements must be actionable (what to change, where). Cite a file path when possible.",
-    "You may also see this author's recent review history. Judge THIS diff on its own merits — never " +
-      "penalize it for a past PR — but if a signal repeats across history and this PR, name the pattern.",
-    "Reply with a single JSON object only — no markdown fences, no commentary.",
-  ].join(" ");
+// The reviewer "persona": tone, priorities, what counts as a strength/improvement. This is
+// the part a user can override per repo (see prReviewPromptStore.js) — shown in the UI as
+// the editable starting template. Kept separate from NON_NEGOTIABLE_RULES below so a custom
+// persona can't accidentally break the JSON output contract or factuality constraints.
+export const DEFAULT_REVIEW_PERSONA = `You are a staff engineer writing a review of ONE pull request.
+This review has two jobs: (1) give the author concrete improvement points for this PR; (2) produce durable signals a later member review can aggregate — habits, not one-off process noise.
+Prefer the diff over metadata. If the diff is missing or truncated, say so — do not pick excellent completeness.
+Ignore lockfiles, generated files, and "PR not yet approved" unless they hide a real engineering issue.
+Strengths must be reusable skills (scope discipline, tests, error handling, clarity), not "title matches ticket".
+Improvements must be actionable (what to change, where). Cite a file path when possible.`;
+
+const NON_NEGOTIABLE_RULES = [
+  "Use only the evidence and the attached unified PR diff. Never invent files, tests, comments, or ticket facts.",
+  "You may also see this author's recent review history and related past PRs from this same repo. Judge THIS " +
+    "diff on its own merits — never penalize it for a past PR — but if a signal repeats across the history, " +
+    "a related PR, and this PR, name the pattern.",
+  "Reply with a single JSON object only — no markdown fences, no commentary.",
+].join(" ");
+
+export function buildPrReviewPrompt({ evidence, prDiff, history, relatedPrs, customSystemPrompt }) {
+  const persona = (customSystemPrompt || "").trim() || DEFAULT_REVIEW_PERSONA;
+  const system = `${persona}\n\n${NON_NEGOTIABLE_RULES}`;
 
   const coverage = prDiff
     ? {
@@ -52,6 +60,17 @@ it as a one-off.`
       : `## Author's recent review history
 No prior reviews on record for this author yet — judge this PR on its own.`;
 
+  const relatedSection =
+    relatedPrs && relatedPrs.length
+      ? `## Related past PRs in this repo (most similar first, by ticket/title/files touched)
+${JSON.stringify(relatedPrs, null, 2)}
+
+These are retrospective context, ranked by textual similarity — not necessarily the same author. Use
+them only to spot recurring patterns in this part of the codebase (e.g. this module keeps shipping
+without tests); never judge this PR against them directly, and never treat similarity as authorship.`
+      : `## Related past PRs in this repo
+No sufficiently related past PR found in this repo yet — judge this PR on its own.`;
+
   const prompt = `Review this pull request for the author and for a later member-level synthesis.
 
 ## Evidence
@@ -60,6 +79,8 @@ ${JSON.stringify(evidence, null, 2)}
 ${diffSection}
 
 ${historySection}
+
+${relatedSection}
 
 Return JSON with exactly these keys:
 {

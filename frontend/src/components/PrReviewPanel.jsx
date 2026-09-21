@@ -86,6 +86,7 @@ export default function PrReviewPanel({ review, onClose }) {
   const strengths = (review.strengths || []).slice(0, 3);
   const improvements = (review.improvements || review.weaknesses || []).slice(0, 4);
   const signals = review.signals || [];
+  const relatedPrs = review.relatedPrs || [];
 
   return createPortal(
     <dialog
@@ -153,6 +154,28 @@ export default function PrReviewPanel({ review, onClose }) {
                 </span>
               ))}
             </p>
+          ) : null}
+
+          {relatedPrs.length ? (
+            <section className="detail-section" style={{ marginTop: 10 }}>
+              <h4>Related PRs referenced</h4>
+              <ul className="compact-list">
+                {relatedPrs.map((r) => (
+                  <li key={`${r.repo}-${r.prId}`}>
+                    {r.link ? (
+                      <a href={r.link} target="_blank" rel="noreferrer">
+                        #{r.prId} {r.title}
+                      </a>
+                    ) : (
+                      <span>
+                        #{r.prId} {r.title}
+                      </span>
+                    )}
+                    <span className="muted small"> · {Math.round((r.similarity || 0) * 100)}% similar</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ) : null}
 
           {!review.summary &&

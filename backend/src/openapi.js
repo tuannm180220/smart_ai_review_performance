@@ -261,6 +261,55 @@ export const openApiSpec = {
         responses: { 200: { description: "OK" } },
       },
     },
+    "/pr-review-prompts": {
+      get: {
+        tags: ["PR Review Prompts"],
+        summary: "List this user's custom review prompts (one per repo with an override)",
+        responses: { 200: { description: "OK" } },
+      },
+    },
+    "/pr-review-prompts/default": {
+      get: {
+        tags: ["PR Review Prompts"],
+        summary: "Get the built-in default review prompt text",
+        responses: { 200: { description: "OK" } },
+      },
+    },
+    "/pr-review-prompts/{repo}": {
+      get: {
+        tags: ["PR Review Prompts"],
+        summary: "Get the review prompt for a repo (custom override, or the default if none set)",
+        parameters: [{ name: "repo", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "OK" } },
+      },
+      put: {
+        tags: ["PR Review Prompts"],
+        summary: "Create or update a repo's custom review prompt (typed or uploaded .md text)",
+        parameters: [{ name: "repo", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["promptText"],
+                properties: {
+                  promptText: { type: "string" },
+                  source: { type: "string", enum: ["typed", "uploaded"] },
+                  filename: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: "OK" }, 400: { description: "Invalid promptText" } },
+      },
+      delete: {
+        tags: ["PR Review Prompts"],
+        summary: "Remove a repo's custom review prompt (reverts to the default)",
+        parameters: [{ name: "repo", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "OK" } },
+      },
+    },
     "/pr-watch": {
       get: { tags: ["PR Watch"], summary: "Today's watched PRs with review status", responses: { 200: { description: "OK" } } },
     },

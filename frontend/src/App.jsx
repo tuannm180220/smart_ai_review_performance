@@ -4,11 +4,13 @@ import { ConfigStatusProvider, useConfigStatus } from "./context/ConfigStatusCon
 import SettingsPage from "./pages/SettingsPage.jsx";
 import SyncPage from "./pages/SyncPage.jsx";
 import PerformanceReviewPage from "./pages/PerformanceReviewPage.jsx";
+import PromptsPage from "./pages/PromptsPage.jsx";
 import { UserMenu } from "./pages/LoginPage.jsx";
 
 const TABS = [
   { key: "sync", label: "Review PR", Component: SyncPage, requires: "integrations" },
   { key: "aiReview", label: "Review member", Component: PerformanceReviewPage, requires: "integrations" },
+  { key: "prompts", label: "Review prompts", Component: PromptsPage, requires: "integrations" },
   { key: "settings", label: "Settings", Component: SettingsPage, requires: null },
 ];
 

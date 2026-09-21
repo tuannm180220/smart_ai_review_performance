@@ -89,4 +89,15 @@ export const api = {
   getPrReview: (repo, prId) => request(`/pr-reviews/${encodeURIComponent(repo)}/${prId}`),
   reviewPullRequest: (repo, prId) =>
     request(`/pr-reviews/${encodeURIComponent(repo)}/${prId}`, { method: "POST" }),
+
+  listPrReviewPrompts: () => request("/pr-review-prompts"),
+  getDefaultPrReviewPrompt: () => request("/pr-review-prompts/default"),
+  getPrReviewPrompt: (repo) => request(`/pr-review-prompts/${encodeURIComponent(repo)}`),
+  savePrReviewPrompt: (repo, { promptText, source, filename }) =>
+    request(`/pr-review-prompts/${encodeURIComponent(repo)}`, {
+      method: "PUT",
+      body: JSON.stringify({ promptText, source, filename }),
+    }),
+  deletePrReviewPrompt: (repo) =>
+    request(`/pr-review-prompts/${encodeURIComponent(repo)}`, { method: "DELETE" }),
 };

@@ -11,12 +11,16 @@ import { buildPrReviewPrompt } from "./prReviewPrompt.js";
 import { askAi } from "./aiProviderService.js";
 import { AtlassianApiError } from "../lib/httpClient.js";
 import { logError } from "../lib/logger.js";
+import { embedText, cosineSimilarity, buildReviewEmbeddingText } from "../lib/textEmbedding.js";
+import { getPromptOverride } from "../store/prReviewPromptStore.js";
 
 const COMMENT_EXCERPT_LENGTH = 500;
 const MAX_COMMENTS = 10;
 const MAX_FILES = 15;
 const DESCRIPTION_EXCERPT_LENGTH = 800;
 const MAX_HISTORY = 5;
+const MAX_RELATED = 5;
+const MIN_RELATED_SIMILARITY = 0.15;
 
 function requireAiConfig() {
   const cfg = readConfig();
@@ -126,7 +130,38 @@ export async function getAuthorReviewHistory({ author, authorUsername, excludeRe
     }));
 }
 
-function buildSavedReview({ record, assessment, prDiff, provider }) {
+/**
+ * Ranks this repo's past reviews by text similarity to the current PR (ticket, title,
+ * files touched) using a local hashing-trick embedding — no external embeddings API.
+ * This is the RAG half of review context: getAuthorReviewHistory follows the author
+ * across repos, this follows the *repo* across authors, so recurring patterns in a
+ * codebase area surface even for a first-time contributor to that area.
+ */
+export async function getRelatedRepoReviews({ repo, embedding, excludePrId, limit = MAX_RELATED } = {}) {
+  if (!repo || !embedding) return [];
+  const all = await listPrReviews({ repo });
+  return all
+    .filter((r) => String(r.prId) !== String(excludePrId) && Array.isArray(r.embedding))
+    .map((r) => ({ review: r, similarity: cosineSimilarity(embedding, r.embedding) }))
+    .filter(({ similarity }) => similarity >= MIN_RELATED_SIMILARITY)
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, limit)
+    .map(({ review: r, similarity }) => ({
+      repo: r.repo,
+      prId: r.prId,
+      title: r.title,
+      link: r.link,
+      reviewedAt: r.reviewedAt,
+      ticketComplexity: r.ticketComplexity,
+      codeCompleteness: r.codeCompleteness,
+      signals: r.signals || [],
+      topImprovement: (r.improvements || r.weaknesses || [])[0] || null,
+      similarity: Math.round(similarity * 100) / 100,
+    }));
+}
+
+function buildSavedReview({ record, assessment, prDiff, provider, relatedPrs }) {
+  const diffCoverage = summarizeDiffCoverage(prDiff);
   const saved = {
     repo: record.repo,
     prId: record.prId,
@@ -141,8 +176,29 @@ function buildSavedReview({ record, assessment, prDiff, provider }) {
     ticketSummary: record.ticketSummary || null,
     provider,
     ...assessment,
-    diffCoverage: summarizeDiffCoverage(prDiff),
+    diffCoverage,
+    relatedPrs: (relatedPrs || []).map(({ repo, prId, title, link, similarity }) => ({
+      repo,
+      prId,
+      title,
+      link,
+      similarity,
+    })),
   };
+  // Stored so *future* reviews in this repo can find this one — richer than the query
+  // embedding below since strengths/improvements/signals only exist after the review.
+  saved.embedding = embedText(
+    buildReviewEmbeddingText({
+      title: saved.title,
+      jiraKey: saved.jiraKey,
+      ticketSummary: saved.ticketSummary,
+      changedFiles: diffCoverage?.included,
+      summary: saved.summary,
+      strengths: saved.strengths,
+      improvements: saved.improvements,
+      signals: saved.signals,
+    })
+  );
   saved.reviewDocument = formatPrReviewMarkdown(saved);
   return saved;
 }
@@ -162,7 +218,27 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
     excludeRepo: record.repo,
     excludePrId: record.prId,
   });
-  const { system, prompt } = buildPrReviewPrompt({ evidence, prDiff, history });
+  const queryEmbedding = embedText(
+    buildReviewEmbeddingText({
+      title: record.title,
+      jiraKey: record.jiraKey,
+      ticketSummary: record.ticketSummary,
+      changedFiles: evidence.changedFileSample,
+    })
+  );
+  const relatedPrs = await getRelatedRepoReviews({
+    repo: record.repo,
+    embedding: queryEmbedding,
+    excludePrId: record.prId,
+  });
+  const promptOverride = await getPromptOverride(record.repo);
+  const { system, prompt } = buildPrReviewPrompt({
+    evidence,
+    prDiff,
+    history,
+    relatedPrs,
+    customSystemPrompt: promptOverride?.promptText,
+  });
 
   const raw = await askAi({
     provider: cfg.aiProvider,
@@ -179,7 +255,7 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
   }
 
   const assessment = normalizeAssessment(parsed);
-  const saved = buildSavedReview({ record, assessment, prDiff, provider: cfg.aiProvider });
+  const saved = buildSavedReview({ record, assessment, prDiff, provider: cfg.aiProvider, relatedPrs });
   return await upsertPrReview(saved);
 }
 

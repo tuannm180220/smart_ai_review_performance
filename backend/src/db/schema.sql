@@ -60,6 +60,16 @@ CREATE TABLE IF NOT EXISTS usage_events (
 CREATE INDEX IF NOT EXISTS idx_usage_events_created
   ON usage_events (created_at);
 
+CREATE TABLE IF NOT EXISTS pr_review_prompts (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  repo TEXT NOT NULL,
+  prompt_text TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'typed',
+  filename TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, repo)
+);
+
 CREATE TABLE IF NOT EXISTS author_emails (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   username TEXT NOT NULL,

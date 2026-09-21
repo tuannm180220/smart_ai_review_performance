@@ -1,6 +1,6 @@
 import { readConfig } from "../config/configStore.js";
 import { getStore } from "../store/recordStore.js";
-import { upsertPrReview } from "../store/prReviewStore.js";
+import { upsertPrReview, listPrReviews } from "../store/prReviewStore.js";
 import { getPullRequest, getPullRequestDetails, getPullRequestDiff } from "./bitbucketService.js";
 import { getTicket } from "./jiraService.js";
 import { extractJiraKey } from "../lib/extractJiraKey.js";
@@ -16,6 +16,7 @@ const COMMENT_EXCERPT_LENGTH = 500;
 const MAX_COMMENTS = 10;
 const MAX_FILES = 15;
 const DESCRIPTION_EXCERPT_LENGTH = 800;
+const MAX_HISTORY = 5;
 
 function requireAiConfig() {
   const cfg = readConfig();
@@ -100,6 +101,52 @@ async function loadRecord({ repo, prId, hint }) {
   };
 }
 
+/**
+ * Pulls this author's past reviews (most recent first, current PR excluded) as
+ * compact entries — not the full documents — so each new review can be told
+ * about recurring patterns (e.g. "tests-missing 3 times running") without the
+ * prompt ballooning. Every review saved via reviewPullRequest/submitPrReview
+ * becomes part of this history for that author's *next* review — the more the
+ * app is used, the more context future reviews have, with no separate store.
+ */
+export async function getAuthorReviewHistory({ author, authorUsername, excludeRepo, excludePrId, limit = MAX_HISTORY } = {}) {
+  if (!author && !authorUsername) return [];
+  const all = await listPrReviews({ author, authorUsername });
+  return all
+    .filter((r) => !(excludeRepo && r.repo === excludeRepo && String(r.prId) === String(excludePrId)))
+    .slice(0, limit)
+    .map((r) => ({
+      repo: r.repo,
+      prId: r.prId,
+      reviewedAt: r.reviewedAt,
+      ticketComplexity: r.ticketComplexity,
+      codeCompleteness: r.codeCompleteness,
+      signals: r.signals || [],
+      topImprovement: (r.improvements || r.weaknesses || [])[0] || null,
+    }));
+}
+
+function buildSavedReview({ record, assessment, prDiff, provider }) {
+  const saved = {
+    repo: record.repo,
+    prId: record.prId,
+    title: record.title,
+    link: record.link,
+    author: record.author,
+    authorUsername: record.authorUsername,
+    state: record.state,
+    prCreatedAt: record.createdAt,
+    jiraKey: record.jiraKey || null,
+    storyPoints: record.storyPoints ?? null,
+    ticketSummary: record.ticketSummary || null,
+    provider,
+    ...assessment,
+    diffCoverage: summarizeDiffCoverage(prDiff),
+  };
+  saved.reviewDocument = formatPrReviewMarkdown(saved);
+  return saved;
+}
+
 export async function reviewPullRequest({ repo, prId, hint } = {}) {
   if (!repo || prId == null || prId === "") {
     throw new AtlassianApiError("repo and prId are required", 400, "MISSING_PR");
@@ -109,7 +156,13 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
   const record = await loadRecord({ repo, prId, hint });
   const evidence = evidenceFromRecord(record);
   const prDiff = await loadPrDiffForReview({ repo: record.repo, prId: record.prId });
-  const { system, prompt } = buildPrReviewPrompt({ evidence, prDiff });
+  const history = await getAuthorReviewHistory({
+    author: record.author,
+    authorUsername: record.authorUsername,
+    excludeRepo: record.repo,
+    excludePrId: record.prId,
+  });
+  const { system, prompt } = buildPrReviewPrompt({ evidence, prDiff, history });
 
   const raw = await askAi({
     provider: cfg.aiProvider,
@@ -126,23 +179,7 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
   }
 
   const assessment = normalizeAssessment(parsed);
-  const saved = {
-    repo: record.repo,
-    prId: record.prId,
-    title: record.title,
-    link: record.link,
-    author: record.author,
-    authorUsername: record.authorUsername,
-    state: record.state,
-    prCreatedAt: record.createdAt,
-    jiraKey: record.jiraKey || null,
-    storyPoints: record.storyPoints ?? null,
-    ticketSummary: record.ticketSummary || null,
-    provider: cfg.aiProvider,
-    ...assessment,
-    diffCoverage: summarizeDiffCoverage(prDiff),
-  };
-  saved.reviewDocument = formatPrReviewMarkdown(saved);
+  const saved = buildSavedReview({ record, assessment, prDiff, provider: cfg.aiProvider });
   return await upsertPrReview(saved);
 }
 

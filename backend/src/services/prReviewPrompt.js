@@ -1,6 +1,6 @@
 import { PR_REVIEW_SIGNALS } from "../lib/prReviewSchema.js";
 
-export function buildPrReviewPrompt({ evidence, prDiff }) {
+export function buildPrReviewPrompt({ evidence, prDiff, history }) {
   const system = [
     "You are a staff engineer writing a review of ONE pull request.",
     "This review has two jobs: (1) give the author concrete improvement points for this PR;",
@@ -10,6 +10,8 @@ export function buildPrReviewPrompt({ evidence, prDiff }) {
     "Ignore lockfiles, generated files, and “PR not yet approved” unless they hide a real engineering issue.",
     "Strengths must be reusable skills (scope discipline, tests, error handling, clarity), not “title matches ticket”.",
     "Improvements must be actionable (what to change, where). Cite a file path when possible.",
+    "You may also see this author's recent review history. Judge THIS diff on its own merits — never " +
+      "penalize it for a past PR — but if a signal repeats across history and this PR, name the pattern.",
     "Reply with a single JSON object only — no markdown fences, no commentary.",
   ].join(" ");
 
@@ -39,12 +41,25 @@ No PR diff was attached${prDiff?.error ? ` (${prDiff.error})` : ""}. Judge label
 
   const signalList = [...PR_REVIEW_SIGNALS].map((s) => `"${s}"`).join(" | ");
 
+  const historySection =
+    history && history.length
+      ? `## Author's recent review history (most recent first, ${history.length} shown)
+${JSON.stringify(history, null, 2)}
+
+This is retrospective context only — do not re-score a past PR. If a signal (e.g. tests-missing)
+recurs here and in the current diff, say so in labelRationale or an improvement instead of treating
+it as a one-off.`
+      : `## Author's recent review history
+No prior reviews on record for this author yet — judge this PR on its own.`;
+
   const prompt = `Review this pull request for the author and for a later member-level synthesis.
 
 ## Evidence
 ${JSON.stringify(evidence, null, 2)}
 
 ${diffSection}
+
+${historySection}
 
 Return JSON with exactly these keys:
 {

@@ -1,10 +1,12 @@
 import express from "express";
 import cors from "cors";
+import swaggerUi from "swagger-ui-express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { log, logError } from "./lib/logger.js";
 import { AtlassianApiError } from "./lib/httpClient.js";
+import { openApiSpec } from "./openapi.js";
 
 import configRoutes from "./routes/config.js";
 import bitbucketRoutes from "./routes/bitbucket.js";
@@ -40,6 +42,9 @@ app.use(express.json());
 app.get("/api/health", (req, res) =>
   res.json({ ok: true, multiTenant: isMultiTenant() })
 );
+
+app.get("/api-docs.json", (req, res) => res.json(openApiSpec));
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
 
 app.use("/api", authRoutes);
 app.use("/api", configRoutes);

@@ -89,6 +89,43 @@ Two browsers → two accounts → Settings/Sync stay separate.
 The app deploys as two separate Render services from this repo: a **Web
 Service** for the backend and a **Static Site** for the frontend.
 
+### 0. PostgreSQL (multi-tenant — do this first)
+
+1. Render dashboard → **New** → **PostgreSQL**. Same region as the backend
+   service, for lower latency. Render's free Postgres **expires after 30
+   days** — fine for testing, but use a paid instance for anything you want
+   to keep.
+2. Copy the **Internal Database URL** (same-region Render services can reach
+   each other over Render's private network — faster and doesn't count
+   against external connection limits). Use the External URL only if the
+   backend lives outside Render.
+3. Generate two secrets and keep them somewhere safe (not this repo):
+   ```bash
+   openssl rand -hex 32     # CONFIG_ENCRYPTION_KEY — must be exactly 64 hex chars
+   openssl rand -base64 32  # JWT_SECRET
+   ```
+4. Set on the **backend** service (Environment tab): `DATABASE_URL` (the
+   Internal URL from step 2), `CONFIG_ENCRYPTION_KEY`, `JWT_SECRET`. Optionally
+   `ALLOW_REGISTER=false` once your team has all registered, to close
+   self-serve sign-up (open by default).
+5. Redeploy. The backend applies its schema itself on every boot
+   (`runMigrations()` in `backend/src/server.js`, idempotent
+   `CREATE TABLE IF NOT EXISTS` — see `backend/src/db/schema.sql`) — no
+   separate migration step to run on Render. If `CONFIG_ENCRYPTION_KEY` is
+   missing/malformed or Postgres isn't reachable, the service refuses to
+   start and logs why (check the Render service's Logs tab).
+6. Setting `DATABASE_URL` flips the whole backend into multi-tenant mode —
+   every `/api/*` route now requires a logged-in app user (JWT), each with
+   their own Jira/Bitbucket/AI credentials in Settings. There's no partial
+   state: it's all local-JSON-shared-config or all-Postgres-per-user. Visit
+   the frontend, register the first account, then log in and fill in
+   Settings as usual.
+
+Have existing data in `backend/data/*.json` from before switching to
+Postgres? `npm run import-local` / `npm run seed-local` (see their scripts in
+`backend/package.json`) migrate it into an account — run locally against the
+same `DATABASE_URL`, not on Render itself.
+
 ### 1. Backend — Web Service
 
 - **Root directory**: `backend`
@@ -212,6 +249,13 @@ Vite on every build, so no dashboard configuration is needed.
 
 ## API surface (backend)
 
+Interactive docs (Swagger UI) are served by the backend itself at
+`/api-docs` — e.g. `https://<your-backend>.onrender.com/api-docs` — with
+**Try it out** to actually call an endpoint and see live data, not just read
+about it. In multi-tenant mode, click **Authorize** and paste the Bearer
+token from `POST /api/auth/login` first. Raw spec: `/api-docs.json`
+(`backend/src/openapi.js`).
+
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/auth/status` | Whether multi-tenant mode is on / register allowed |
@@ -282,6 +326,18 @@ frontend/
     context/                Toast notifications
     api.js                  fetch wrapper for the backend
 ```
+
+## Review history (a review improves the next one)
+
+The web AI Review flow pulls the author's last 5 saved reviews
+(`getAuthorReviewHistory` in `backend/src/services/prReviewService.js`) —
+signals, labels, and top improvement from each — and feeds them into the
+prompt as retrospective context, so the reviewer can name a recurring
+pattern ("tests-missing, 3rd PR running") instead of treating each PR in
+isolation. This is plain SQL/JSON retrieval against the same `pr_reviews`
+data already being stored — no embeddings, vector DB, or extra API key.
+Every review saved via the AI Review/PR Watch buttons immediately becomes
+available as history for that author's next review; nothing extra to run.
 
 ## AI providers (AI Review tab)
 

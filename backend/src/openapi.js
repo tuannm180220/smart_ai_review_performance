@@ -264,14 +264,22 @@ export const openApiSpec = {
     "/pr-review-prompts": {
       get: {
         tags: ["PR Review Prompts"],
-        summary: "List this user's custom review prompts (one per repo with an override)",
+        summary: "List this user's custom review skills (one row per repo + skill kind)",
+        responses: { 200: { description: "OK" } },
+      },
+    },
+    "/pr-review-prompts/skills": {
+      get: {
+        tags: ["PR Review Prompts"],
+        summary: "List review skills (base + type skills) with when they apply and their default text",
         responses: { 200: { description: "OK" } },
       },
     },
     "/pr-review-prompts/default": {
       get: {
         tags: ["PR Review Prompts"],
-        summary: "Get the built-in default review prompt text",
+        summary: "Get the built-in default text of one review skill",
+        parameters: [{ name: "kind", in: "query", required: false, schema: { type: "string", enum: ["base", "feature", "export", "bugfix", "data"], default: "base" } }],
         responses: { 200: { description: "OK" } },
       },
     },
@@ -279,13 +287,13 @@ export const openApiSpec = {
       get: {
         tags: ["PR Review Prompts"],
         summary: "Get the review prompt for a repo (custom override, or the default if none set)",
-        parameters: [{ name: "repo", in: "path", required: true, schema: { type: "string" } }],
+        parameters: [{ name: "repo", in: "path", required: true, schema: { type: "string" } }, { name: "kind", in: "query", required: false, schema: { type: "string", enum: ["base", "feature", "export", "bugfix", "data"], default: "base" } }],
         responses: { 200: { description: "OK" } },
       },
       put: {
         tags: ["PR Review Prompts"],
-        summary: "Create or update a repo's custom review prompt (typed or uploaded .md text)",
-        parameters: [{ name: "repo", in: "path", required: true, schema: { type: "string" } }],
+        summary: "Create or update a repo's custom review skill (typed or uploaded .md text)",
+        parameters: [{ name: "repo", in: "path", required: true, schema: { type: "string" } }, { name: "kind", in: "query", required: false, schema: { type: "string", enum: ["base", "feature", "export", "bugfix", "data"], default: "base" } }],
         requestBody: {
           content: {
             "application/json": {
@@ -305,8 +313,8 @@ export const openApiSpec = {
       },
       delete: {
         tags: ["PR Review Prompts"],
-        summary: "Remove a repo's custom review prompt (reverts to the default)",
-        parameters: [{ name: "repo", in: "path", required: true, schema: { type: "string" } }],
+        summary: "Remove a repo's custom review skill (reverts to the built-in default)",
+        parameters: [{ name: "repo", in: "path", required: true, schema: { type: "string" } }, { name: "kind", in: "query", required: false, schema: { type: "string", enum: ["base", "feature", "export", "bugfix", "data"], default: "base" } }],
         responses: { 200: { description: "OK" } },
       },
     },

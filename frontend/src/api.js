@@ -91,13 +91,16 @@ export const api = {
     request(`/pr-reviews/${encodeURIComponent(repo)}/${prId}`, { method: "POST" }),
 
   listPrReviewPrompts: () => request("/pr-review-prompts"),
-  getDefaultPrReviewPrompt: () => request("/pr-review-prompts/default"),
-  getPrReviewPrompt: (repo) => request(`/pr-review-prompts/${encodeURIComponent(repo)}`),
-  savePrReviewPrompt: (repo, { promptText, source, filename }) =>
-    request(`/pr-review-prompts/${encodeURIComponent(repo)}`, {
+  listReviewSkills: () => request("/pr-review-prompts/skills"),
+  getDefaultPrReviewPrompt: (kind = "base") =>
+    request(`/pr-review-prompts/default?kind=${encodeURIComponent(kind)}`),
+  getPrReviewPrompt: (repo, kind = "base") =>
+    request(`/pr-review-prompts/${encodeURIComponent(repo)}?kind=${encodeURIComponent(kind)}`),
+  savePrReviewPrompt: (repo, { kind = "base", promptText, source, filename }) =>
+    request(`/pr-review-prompts/${encodeURIComponent(repo)}?kind=${encodeURIComponent(kind)}`, {
       method: "PUT",
-      body: JSON.stringify({ promptText, source, filename }),
+      body: JSON.stringify({ kind, promptText, source, filename }),
     }),
-  deletePrReviewPrompt: (repo) =>
-    request(`/pr-review-prompts/${encodeURIComponent(repo)}`, { method: "DELETE" }),
+  deletePrReviewPrompt: (repo, kind = "base") =>
+    request(`/pr-review-prompts/${encodeURIComponent(repo)}?kind=${encodeURIComponent(kind)}`, { method: "DELETE" }),
 };

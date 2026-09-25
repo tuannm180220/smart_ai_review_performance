@@ -78,7 +78,7 @@ test("buildPrReviewPrompt attaches filtered diff as primary evidence", () => {
     prDiff: prepared,
   });
   assert.match(system, /unified PR diff/);
-  assert.match(system, /two jobs/);
+  assert.match(system, /Base Review Skill/);
   assert.match(prompt, /improvements/);
   assert.match(prompt, /labelRationale/);
   assert.doesNotMatch(prompt, /"score":/);

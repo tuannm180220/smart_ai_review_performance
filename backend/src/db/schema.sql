@@ -63,12 +63,28 @@ CREATE INDEX IF NOT EXISTS idx_usage_events_created
 CREATE TABLE IF NOT EXISTS pr_review_prompts (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   repo TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'base',
   prompt_text TEXT NOT NULL,
   source TEXT NOT NULL DEFAULT 'typed',
   filename TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (user_id, repo)
+  PRIMARY KEY (user_id, repo, kind)
 );
+
+-- Upgrade: one override per (repo, review skill kind). Existing rows become the repo's "base" skill.
+ALTER TABLE pr_review_prompts ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'base';
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.key_column_usage
+    WHERE table_name = 'pr_review_prompts'
+      AND constraint_name = 'pr_review_prompts_pkey'
+      AND column_name = 'kind'
+  ) THEN
+    ALTER TABLE pr_review_prompts DROP CONSTRAINT IF EXISTS pr_review_prompts_pkey;
+    ALTER TABLE pr_review_prompts ADD PRIMARY KEY (user_id, repo, kind);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS author_emails (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

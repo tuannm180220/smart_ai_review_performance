@@ -107,6 +107,7 @@ export default function PrReviewPanel({ review, onClose }) {
               {ticket ? ` · ticket ${ticket}` : ""}
               {reviewedAt ? ` · reviewed ${reviewedAt}` : ""}
               {diffCoverageLabel(review.diffCoverage)}
+              {review.reviewKinds?.length ? ` · skills: base + ${review.reviewKinds.join(" + ")}` : ""}
             </p>
           </div>
           <button type="button" onClick={() => onCloseRef.current?.()} aria-label="Close review">

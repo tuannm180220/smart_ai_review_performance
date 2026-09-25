@@ -12,7 +12,8 @@ import { askAi } from "./aiProviderService.js";
 import { AtlassianApiError } from "../lib/httpClient.js";
 import { logError } from "../lib/logger.js";
 import { embedText, cosineSimilarity, buildReviewEmbeddingText } from "../lib/textEmbedding.js";
-import { getPromptOverride } from "../store/prReviewPromptStore.js";
+import { composeReviewPersona } from "./reviewSkills.js";
+import { detectPrKinds } from "../lib/prKind.js";
 
 const COMMENT_EXCERPT_LENGTH = 500;
 const MAX_COMMENTS = 10;
@@ -231,13 +232,27 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
     embedding: queryEmbedding,
     excludePrId: record.prId,
   });
-  const promptOverride = await getPromptOverride(record.repo);
+  const reviewKinds = detectPrKinds({
+    title: record.title,
+    sourceBranch: record.sourceBranch,
+    commitMessages: evidence.commitMessages,
+    ticketSummary: record.ticketSummary,
+    ticketDescription: record.ticketDescription,
+    files: prDiff?.filesIncluded?.length ? prDiff.filesIncluded.map((f) => f.path) : evidence.changedFileSample,
+    diffText: prDiff?.text,
+    reopened: record.reopened,
+  });
+  const { persona, used: skillsUsed } = await composeReviewPersona(
+    record.repo,
+    reviewKinds.map((k) => k.kind)
+  );
   const { system, prompt } = buildPrReviewPrompt({
     evidence,
     prDiff,
     history,
     relatedPrs,
-    customSystemPrompt: promptOverride?.promptText,
+    customSystemPrompt: persona,
+    reviewKinds,
   });
 
   const raw = await askAi({
@@ -256,6 +271,8 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
 
   const assessment = normalizeAssessment(parsed);
   const saved = buildSavedReview({ record, assessment, prDiff, provider: cfg.aiProvider, relatedPrs });
+  saved.reviewKinds = reviewKinds.map((k) => k.kind);
+  saved.skillsUsed = skillsUsed;
   return await upsertPrReview(saved);
 }
 

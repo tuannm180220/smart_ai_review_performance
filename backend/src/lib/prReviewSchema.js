@@ -59,6 +59,23 @@ function pickEnum(value, allowed, fallback) {
   return allowed.has(key) ? key : fallback;
 }
 
+const FOLLOW_UP_STATUS = new Set(["fixed", "still-open"]);
+const MAX_FOLLOW_UPS = 6;
+
+/** Status of feedback from earlier PRs of the same ticket (multi-PR tasks). */
+function asFollowUps(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((f) => f && typeof f === "object")
+    .map((f) => ({
+      prId: f.prId ?? null,
+      item: clipText(String(f.item || ""), MAX_BULLET_CHARS),
+      status: String(f.status || "").trim().toLowerCase(),
+    }))
+    .filter((f) => f.item && FOLLOW_UP_STATUS.has(f.status))
+    .slice(0, MAX_FOLLOW_UPS);
+}
+
 /** Normalize the structured assessment the model returns. Does not compute a numeric score. */
 export function normalizeAssessment(raw) {
   const src = raw && typeof raw === "object" ? raw : {};
@@ -72,7 +89,20 @@ export function normalizeAssessment(raw) {
     ticketComplexity: pickEnum(src.ticketComplexity, COMPLEXITY, "medium"),
     codeCompleteness: pickEnum(src.codeCompleteness, COMPLETENESS, "adequate"),
     summary: clipText(src.summary, MAX_SUMMARY_CHARS),
+    followUps: asFollowUps(src.followUps),
   };
+}
+
+function formatFollowUps(review) {
+  const ctx = review.ticketContext;
+  const followUps = review.followUps || [];
+  if (!ctx?.earlier?.length && !followUps.length) return [];
+  const lines = ["", `## Earlier PRs of ${ctx?.jiraKey || "this ticket"}`];
+  if (ctx?.earlier?.length) {
+    lines.push(`Context: ${ctx.earlier.map((p) => `#${p.prId}${p.reviewed ? "" : " (not reviewed)"}`).join(", ")}`);
+  }
+  for (const f of followUps) lines.push(`- ${f.status === "fixed" ? "Fixed" : "Still open"} (PR #${f.prId}): ${f.item}`);
+  return lines;
 }
 
 export function formatPrReviewMarkdown(review) {
@@ -99,6 +129,7 @@ export function formatPrReviewMarkdown(review) {
     "",
     "## Improvements",
     improvements,
+    ...formatFollowUps(review),
     "",
     `Signals: ${signals}`,
   ].join("\n");

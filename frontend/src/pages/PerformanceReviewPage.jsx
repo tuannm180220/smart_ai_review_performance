@@ -7,6 +7,7 @@ import { CompletenessBadge } from "../components/PrReviewPanel.jsx";
 import SeverityText from "../components/SeverityText.jsx";
 
 const METRIC_LABELS = [
+  ["projectCount", "Projects"],
   ["totalPRs", "Total PRs"],
   ["mergedPRs", "Merged"],
   ["approvalRate", "Approval rate"],
@@ -18,6 +19,7 @@ const METRIC_LABELS = [
   ["reopenedTicketCount", "Reopen events"],
   ["avgDaysToReworkPr", "Avg days to fix (rework)"],
   ["savedReviews", "Saved PR reviews"],
+  ["aiIssueCount", "Issues found (AI review)"],
 ];
 
 function formatMetric(key, value) {

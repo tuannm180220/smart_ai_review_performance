@@ -7,7 +7,7 @@ import { buildPerformanceReviewPrompt, buildMemberReviewFromPrReviewsPrompt } fr
 import { askAi } from "./aiProviderService.js";
 import { AtlassianApiError } from "../lib/httpClient.js";
 import { listPrReviews } from "../store/prReviewStore.js";
-import { countBy, countSignals } from "../lib/prReviewSchema.js";
+import { countBy, countSignals, groupWeaknesses } from "../lib/prReviewSchema.js";
 import { logError } from "../lib/logger.js";
 import { matchesAuthor, authorLabel } from "../lib/authorIdentity.js";
 
@@ -81,6 +81,15 @@ function buildMetrics(userRecords, ticketGroups) {
   const linkedTickets = new Set(userRecords.filter((r) => r.jiraKey).map((r) => r.jiraKey));
   const storyPoints = userRecords.reduce((sum, r) => sum + (r.storyPoints || 0), 0);
   const totalComments = userRecords.reduce((sum, r) => sum + (r.comments?.length || 0), 0);
+  // Top-level comments by someone other than the PR author — replies and self-comments are not review findings.
+  const humanReviewComments = userRecords.reduce(
+    (sum, r) =>
+      sum +
+      (r.comments || []).filter(
+        (c) => !c.parentId && !matchesAuthor({ author: c.author, authorUsername: c.authorUsername }, r.author, r.authorUsername)
+      ).length,
+    0
+  );
   const linesAdded = userRecords.reduce(
     (sum, r) => sum + (r.diffstat || []).reduce((s, d) => s + (d.linesAdded || 0), 0),
     0
@@ -95,14 +104,27 @@ function buildMetrics(userRecords, ticketGroups) {
     ? Number((resolvedRework.reduce((s, e) => s + e.daysToReworkPr, 0) / resolvedRework.length).toFixed(1))
     : null;
 
+  const projects = new Map();
+  for (const r of userRecords) {
+    const p = projects.get(r.repo) || { repo: r.repo, prs: 0, tickets: new Set() };
+    p.prs += 1;
+    if (r.jiraKey) p.tickets.add(r.jiraKey);
+    projects.set(r.repo, p);
+  }
+
   return {
     totalPRs: total,
+    projectCount: projects.size,
+    projects: [...projects.values()]
+      .map((p) => ({ repo: p.repo, prs: p.prs, tickets: p.tickets.size }))
+      .sort((a, b) => b.prs - a.prs),
     mergedPRs: merged.length,
     approvedPRs: approved.length,
     approvalRate: total ? Number((approved.length / total).toFixed(2)) : 0,
     linkedTickets: linkedTickets.size,
     storyPoints,
     totalReviewComments: totalComments,
+    humanReviewComments,
     avgReviewCommentsPerPr: total ? Number((totalComments / total).toFixed(1)) : 0,
     linesAdded,
     linesRemoved,
@@ -173,12 +195,15 @@ export async function reviewUser({ author, from, to, mode, authorUsername }) {
     ? buildMetrics(userRecords, ticketGroups)
     : {
         totalPRs: 0,
+        projectCount: 0,
+        projects: [],
         mergedPRs: 0,
         approvedPRs: 0,
         approvalRate: 0,
         linkedTickets: 0,
         storyPoints: 0,
         totalReviewComments: 0,
+        humanReviewComments: 0,
         avgReviewCommentsPerPr: 0,
         linesAdded: 0,
         linesRemoved: 0,
@@ -292,6 +317,9 @@ async function reviewUserFromSavedPrReviews({
     complexity: countBy(prReviews, "ticketComplexity"),
     completeness: countBy(prReviews, "codeCompleteness"),
     signalCounts: countSignals(prReviews),
+    aiIssueCount: prReviews.reduce((sum, r) => sum + (r.improvements || []).length, 0),
+    humanReviewComments: metrics.humanReviewComments,
+    weaknessGroups: groupWeaknesses(prReviews),
   };
 
   const { system, prompt } = buildMemberReviewFromPrReviewsPrompt(
@@ -318,7 +346,7 @@ async function reviewUserFromSavedPrReviews({
     to: to || null,
     provider: cfg.aiProvider,
     mode: "pr-reviews",
-    metrics: { ...metrics, savedReviews: coverage.savedReviews },
+    metrics: { ...metrics, savedReviews: coverage.savedReviews, aiIssueCount: coverage.aiIssueCount },
     coverage,
     prReviews,
     review,

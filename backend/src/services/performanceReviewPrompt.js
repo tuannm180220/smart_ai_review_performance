@@ -71,6 +71,7 @@ export function buildMemberReviewFromPrReviewsPrompt(author, from, to, metrics, 
     "Ignore process noise: approval rate, “PR not approved”, lockfiles, null/zero story points — unless they blocked judging the work.",
     "If coverage.unreviewedCount > 0, say the picture is incomplete. Never infer quality for unreviewed PRs.",
     "Never invent PRs, comments, or tickets. Write Markdown with the exact section headings requested.",
+    "Write the entire report in Vietnamese. Keep PR ids, ticket keys, repo names and quoted review bullets as-is.",
   ].join(" ");
 
   const prompt = `Review engineer "${author}" for the period ${from || "(all time)"} to ${to || "(all time)"}.
@@ -78,6 +79,8 @@ export function buildMemberReviewFromPrReviewsPrompt(author, from, to, metrics, 
 ## Coverage (pre-computed — use these counts, do not recount)
 ${JSON.stringify(coverage, null, 2)}
 signalCounts = how often each habit tag appeared. complexity / completeness = label tallies.
+aiIssueCount = total improvement bullets across saved AI PR reviews. humanReviewComments = top-level Bitbucket comments by people other than the author (replies and self-comments excluded).
+weaknessGroups = per weakness category (scope, tests, error-handling, security, requirements, other), already grouped from signals: prCount, prIds, rate = prCount / savedReviews.
 Only saved structured reviews are in the packet.
 
 ## Delivery metrics (synced authored PRs — do not recompute)
@@ -88,32 +91,39 @@ Use volume as context, not as a quality proxy. Do not praise or penalize story p
 Each item: ticketComplexity, codeCompleteness, strengths, improvements, signals, summary.
 ${JSON.stringify(prReviews, null, 2)}
 
-Produce a Markdown document with exactly these sections, in this order:
+Produce a Markdown document in Vietnamese with exactly these headings, in this order:
 
-# Performance Review — ${author}
-One line: period · N saved reviews. No numeric score.
+# Đánh giá năng lực — ${author}
+One line: period · N saved reviews of M synced PRs. No numeric score.
 
-## Executive Summary
-3–5 sentences. Lead with 2–3 dominant habits from signalCounts / repeated improvements. State coverage gaps if unreviewedCount > 0. Do not invent or average a rating.
+## Tình hình chung
+Facts only, no judgement. A short table or bullet list with:
+- Projects: each repo from metrics.projects with its PR and ticket count
+- Tasks: metrics.linkedTickets tickets, metrics.totalPRs PRs (metrics.mergedPRs merged)
+- Story points: metrics.storyPoints — write "không theo dõi" if 0
+- Issues found in review: coverage.aiIssueCount from AI PR reviews · coverage.humanReviewComments human review comments
+- Rework: metrics.reopenedTicketCount reopened tickets (name keys) — reopen is not automatically the author’s fault
+- Complexity mix from coverage.complexity
+If coverage.unreviewedCount > 0, add one line: "X/M PR chưa được review — các mục dưới chỉ phản ánh các PR đã review."
 
-## Delivery
-PR/ticket volume from metrics, with 2–4 cited PR ids. Separate “shipped a lot” from “shipped hard work”. If story points are missing, omit them.
+## Điểm mạnh
+Up to 6 bullets of recurring strengths (positive signals or repeated strength bullets); fewer if the sample is small — never pad. Each cites PR ids and quotes one strength bullet. Prefer strengths shown on high-complexity PRs.
 
-## Habits (from saved PR reviews)
-Start from signalCounts. For each recurring habit (2+ PRs, or 1× high-complexity / security-risk):
-- name the habit in plain language (you may keep the signal tag in parentheses)
-- cite PR ids
-- quote one improvement or strength bullet
-Then 3–6 bullets of recurring strengths the same way.
-If high-complexity PRs have weaker completeness than low-complexity ones, say so explicitly.
+## Điểm yếu & thói quen cần cải thiện
+Start from coverage.weaknessGroups. First a summary table of groups with prCount > 0, most PRs first:
+| Nhóm | Số PR | Tỉ lệ | Thói quen / Lỗi lẻ | PR |
+Tỉ lệ = prCount/savedReviews (rate as %), e.g. "4/12 (33%)". Group names in Vietnamese: scope → Phạm vi thay đổi, tests → Kiểm thử, error-handling → Xử lý lỗi, security → Bảo mật, requirements → Đáp ứng yêu cầu, other → Khác.
+Then, in the same order, a subsection per group:
+### <Group name> — <prCount>/<savedReviews> PR
+- "Thói quen" if 2+ PRs, or 1× high-complexity / security-risk; otherwise "Lỗi lẻ"
+- PRs: cited ids
+- Example: quote one improvement bullet verbatim
+For "other", cluster the improvement text into named themes; do not invent signal tags.
+Skip groups with prCount = 0. If high-complexity PRs have weaker completeness than low-complexity ones, say so explicitly.
 If nothing repeats, say the sample is too small for habits and list one-off notes only.
-Note incomplete coverage when unreviewedCount > 0.
 
-## Rework & Bug Turnaround
-From metrics.reworkEvents / avgDaysToReworkPr only. Name ticket keys. Reopen is not automatically the author’s fault — say if the packet does not show who caused it. If none, say so.
-
-## Recommendations
-2–4 numbered items. Each must map to a habit or completeness pattern above and name at least one PR id. No generic advice (“write more tests”) unless tests-missing (or equivalent improvements) actually recurred.
+## Đề xuất cho kỳ tới
+2–4 numbered items. Each maps to a weakness group above, names at least one PR id, and states how to check it next period (e.g. "tests-missing appears in fewer PRs"). No generic advice unless it recurred.
 
 ## Evidence Log
 "PR #<id> (<repo>) · <complexity> / <completeness> — <one-line: main signal or improvement>".

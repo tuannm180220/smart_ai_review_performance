@@ -14,6 +14,15 @@ export const PR_REVIEW_SIGNALS = new Set([
   "partial-ticket",
 ]);
 
+/** Weakness categories for the member report — each maps negative signals to one group. */
+export const WEAKNESS_GROUPS = {
+  scope: ["bloated-scope", "hard-to-review"],
+  tests: ["tests-missing"],
+  "error-handling": ["weak-error-handling"],
+  security: ["security-risk"],
+  requirements: ["partial-ticket"],
+};
+
 const MAX_STRENGTHS = 3;
 const MAX_IMPROVEMENTS = 4;
 const MAX_BULLET_CHARS = 140;
@@ -153,6 +162,29 @@ export function countBy(reviews, field) {
     counts[key] = (counts[key] || 0) + 1;
   }
   return counts;
+}
+
+/** Per weakness group: how many PRs hit it, which ones, and the share of reviewed PRs (rate). PRs with improvements but no negative signal land in "other". */
+export function groupWeaknesses(reviews) {
+  const groups = {};
+  for (const name of [...Object.keys(WEAKNESS_GROUPS), "other"]) groups[name] = { prCount: 0, prIds: [] };
+  for (const r of reviews || []) {
+    const signals = new Set(r.signals || []);
+    let matched = false;
+    for (const [name, groupSignals] of Object.entries(WEAKNESS_GROUPS)) {
+      if (!groupSignals.some((s) => signals.has(s))) continue;
+      groups[name].prCount += 1;
+      groups[name].prIds.push(r.prId);
+      matched = true;
+    }
+    if (!matched && (r.improvements || []).length) {
+      groups.other.prCount += 1;
+      groups.other.prIds.push(r.prId);
+    }
+  }
+  const total = (reviews || []).length;
+  for (const g of Object.values(groups)) g.rate = total ? Number((g.prCount / total).toFixed(2)) : 0;
+  return groups;
 }
 
 export function countSignals(reviews) {

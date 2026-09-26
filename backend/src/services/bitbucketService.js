@@ -136,6 +136,8 @@ export async function getPullRequestDetails({ repo, id }) {
       .map((c) => ({
         id: c.id,
         author: c.user?.display_name || "unknown",
+        authorUsername: c.user?.username || c.user?.nickname || null,
+        parentId: c.parent?.id ?? null,
         content: c.content?.raw || "",
         createdAt: c.created_on,
         inline: c.inline || null,

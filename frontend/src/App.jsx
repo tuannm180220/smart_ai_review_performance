@@ -10,7 +10,7 @@ import { UserMenu } from "./pages/LoginPage.jsx";
 const TABS = [
   { key: "sync", label: "Review PR", Component: SyncPage, requires: "integrations" },
   { key: "aiReview", label: "Review member", Component: PerformanceReviewPage, requires: "integrations" },
-  { key: "prompts", label: "Review prompts", Component: PromptsPage, requires: "integrations" },
+  { key: "prompts", label: "Prompts config", Component: PromptsPage, requires: "integrations" },
   { key: "settings", label: "Settings", Component: SettingsPage, requires: null },
 ];
 

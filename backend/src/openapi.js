@@ -217,7 +217,26 @@ export const openApiSpec = {
             },
           },
         },
+        responses: { 200: { description: "OK — the saved member review (includes id, reviewedAt)" } },
+      },
+    },
+    "/ai-review/history": {
+      get: {
+        tags: ["AI Review"],
+        summary: "Past member reviews of one person, newest first (summary, no report body)",
+        parameters: [
+          { name: "author", in: "query", schema: { type: "string" } },
+          { name: "authorUsername", in: "query", schema: { type: "string" } },
+        ],
         responses: { 200: { description: "OK" } },
+      },
+    },
+    "/ai-review/history/{id}": {
+      get: {
+        tags: ["AI Review"],
+        summary: "One saved member review with its full report",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "OK" }, 404: { description: "Not found" } },
       },
     },
     "/pr-reviews": {

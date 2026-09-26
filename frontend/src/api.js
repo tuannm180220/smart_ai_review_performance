@@ -74,6 +74,13 @@ export const api = {
   listAiReviewAuthors: () => request("/ai-review/authors"),
   runAiReview: ({ author, authorUsername, from, to, mode }) =>
     request("/ai-review", { method: "POST", body: JSON.stringify({ author, authorUsername, from, to, mode }) }),
+  listMemberReviews: ({ author, authorUsername }) => {
+    const params = new URLSearchParams();
+    if (author) params.set("author", author);
+    if (authorUsername) params.set("authorUsername", authorUsername);
+    return request(`/ai-review/history?${params.toString()}`);
+  },
+  getMemberReview: (id) => request(`/ai-review/history/${encodeURIComponent(id)}`),
 
   listPrReviews: ({ author, from, to, repo } = {}) => {
     const params = new URLSearchParams();

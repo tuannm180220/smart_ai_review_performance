@@ -150,7 +150,7 @@ export default function PromptsPage() {
 
   return (
     <div className="page">
-      <h2>Review prompts</h2>
+      <h2>Prompts config</h2>
       <p className="muted">
         Each PR review uses the <strong>Base</strong> skill plus up to two <strong>type skills</strong> the app
         picks from the PR itself (changed files, branch, title, ticket): Feature, Export / report, Bug fix, or

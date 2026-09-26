@@ -220,7 +220,10 @@ Vite on every build, so no dashboard configuration is needed.
    PRs/tickets behind each claim — rather than generic prose. Rendered as a
    formatted document in the UI, with a **Download report (.md)** button to
    save it. Requires a Sync to have run first, and an AI agent configured in
-   Settings.
+   Settings. Every finished review is saved (report + the selected date range)
+   in `member_reviews` (`backend/src/store/memberReviewStore.js`, Postgres or
+   `backend/data/member-reviews.json`); picking a person lists their previous
+   reviews so any of them can be reopened without calling the AI again.
 5. **PR Watch** — the backend polls every 30 minutes for PRs created *today*
    across every repo in the configured workspace. New ones show up in the
    table with a **Not reviewed** badge, a toast, and (once you grant the
@@ -274,7 +277,9 @@ token from `POST /api/auth/login` first. Raw spec: `/api-docs.json`
 | GET | `/api/records` | Read persisted unified records |
 | GET | `/api/records/by-ticket` | Same records grouped by Jira key |
 | GET | `/api/ai-review/authors` | Distinct list of PR authors seen in synced records |
-| POST | `/api/ai-review` | Run an AI performance review for one person (`author`, `from`, `to`) |
+| POST | `/api/ai-review` | Run an AI performance review for one person (`author`, `from`, `to`) and save it |
+| GET | `/api/ai-review/history` | Past saved member reviews of one person (`author`, `authorUsername`), newest first |
+| GET | `/api/ai-review/history/:id` | One saved member review with its full report |
 | GET | `/api/pr-watch` | Today's watched PRs (resets at UTC midnight) with review status |
 | POST | `/api/pr-watch/refresh` | Poll Bitbucket now instead of waiting for the 30-minute scheduler |
 | POST | `/api/pr-watch/:repo/:id/review` | Run an AI critique of one watched PR and persist it |

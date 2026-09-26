@@ -74,6 +74,13 @@ export const api = {
   listAiReviewAuthors: () => request("/ai-review/authors"),
   runAiReview: ({ author, authorUsername, from, to, mode }) =>
     request("/ai-review", { method: "POST", body: JSON.stringify({ author, authorUsername, from, to, mode }) }),
+  listMemberReviews: ({ author, authorUsername }) => {
+    const params = new URLSearchParams();
+    if (author) params.set("author", author);
+    if (authorUsername) params.set("authorUsername", authorUsername);
+    return request(`/ai-review/history?${params.toString()}`);
+  },
+  getMemberReview: (id) => request(`/ai-review/history/${encodeURIComponent(id)}`),
 
   listPrReviews: ({ author, from, to, repo } = {}) => {
     const params = new URLSearchParams();
@@ -89,6 +96,23 @@ export const api = {
   getPrReview: (repo, prId) => request(`/pr-reviews/${encodeURIComponent(repo)}/${prId}`),
   reviewPullRequest: (repo, prId) =>
     request(`/pr-reviews/${encodeURIComponent(repo)}/${prId}`, { method: "POST" }),
+  disputePrReviewItem: (repo, prId, { index, item, reason, removeSignals }) =>
+    request(`/pr-reviews/${encodeURIComponent(repo)}/${prId}/disputes`, {
+      method: "POST",
+      body: JSON.stringify({ index, item, reason, removeSignals }),
+    }),
+  listPrExceptions: (repo) =>
+    request(`/pr-exceptions${repo ? `?repo=${encodeURIComponent(repo)}` : ""}`),
+  getPrException: (repo, prId) => request(`/pr-exceptions/${encodeURIComponent(repo)}/${prId}`),
+  savePrException: (repo, prId, { text, source, filename }) =>
+    request(`/pr-exceptions/${encodeURIComponent(repo)}/${prId}`, {
+      method: "PUT",
+      body: JSON.stringify({ text, source, filename }),
+    }),
+  deletePrException: (repo, prId) =>
+    request(`/pr-exceptions/${encodeURIComponent(repo)}/${prId}`, { method: "DELETE" }),
+  restorePrReviewItem: (repo, prId, disputeIndex) =>
+    request(`/pr-reviews/${encodeURIComponent(repo)}/${prId}/disputes/${disputeIndex}`, { method: "DELETE" }),
 
   listPrReviewPrompts: () => request("/pr-review-prompts"),
   listReviewSkills: () => request("/pr-review-prompts/skills"),

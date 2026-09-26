@@ -15,6 +15,7 @@ import syncRoutes from "./routes/sync.js";
 import aiReviewRoutes from "./routes/aiReview.js";
 import prReviewRoutes from "./routes/prReviews.js";
 import prReviewPromptRoutes from "./routes/prReviewPrompts.js";
+import prExceptionRoutes from "./routes/prExceptions.js";
 import adminRoutes from "./routes/admin.js";
 import authRoutes from "./routes/auth.js";
 import { isMultiTenant } from "./db/pool.js";
@@ -55,6 +56,7 @@ app.use("/api", syncRoutes);
 app.use("/api", aiReviewRoutes);
 app.use("/api", prReviewRoutes);
 app.use("/api", prReviewPromptRoutes);
+app.use("/api", prExceptionRoutes);
 app.use("/api", adminRoutes);
 
 app.use((req, res) => {

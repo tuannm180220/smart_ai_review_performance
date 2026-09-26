@@ -1,6 +1,8 @@
 import { readConfig } from "../config/configStore.js";
 import { getStore } from "../store/recordStore.js";
-import { upsertPrReview, listPrReviews } from "../store/prReviewStore.js";
+import { upsertPrReview, listPrReviews, getPrReview } from "../store/prReviewStore.js";
+import { applyDispute, restoreDispute, collectTeamDecisions } from "../lib/prReviewDisputes.js";
+import { getPrException } from "../store/prExceptionStore.js";
 import { getPullRequest, getPullRequestDetails, getPullRequestDiff } from "./bitbucketService.js";
 import { getTicket } from "./jiraService.js";
 import { extractJiraKey } from "../lib/extractJiraKey.js";
@@ -185,7 +187,7 @@ async function getSameTicketContext(record, prDiff, evidence) {
   }
 }
 
-function buildSavedReview({ record, assessment, prDiff, provider, relatedPrs, ticketContext }) {
+function buildSavedReview({ record, assessment, prDiff, provider, relatedPrs, ticketContext, disputes }) {
   const diffCoverage = summarizeDiffCoverage(prDiff);
   const saved = {
     repo: record.repo,
@@ -202,6 +204,7 @@ function buildSavedReview({ record, assessment, prDiff, provider, relatedPrs, ti
     provider,
     ...assessment,
     ticketContext: ticketContext || null,
+    disputes: disputes || [],
     diffCoverage,
     relatedPrs: (relatedPrs || []).map(({ repo, prId, title, link, similarity }) => ({
       repo,
@@ -272,6 +275,12 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
     diffText: prDiff?.text,
     reopened: record.reopened,
   });
+  const previous = await getPrReview(record.repo, record.prId);
+  const exceptions = await getPrException(record.repo, record.prId);
+  const teamDecisions = collectTeamDecisions(await listPrReviews({ repo: record.repo }), {
+    repo: record.repo,
+    prId: record.prId,
+  });
   const { persona, used: skillsUsed } = await composeReviewPersona(
     record.repo,
     reviewKinds.map((k) => k.kind)
@@ -284,6 +293,8 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
     customSystemPrompt: persona,
     reviewKinds,
     ticketContext,
+    teamDecisions,
+    exceptions,
   });
 
   const raw = await askAi({
@@ -308,7 +319,12 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
     provider: cfg.aiProvider,
     relatedPrs,
     ticketContext: summarizeTicketContext(ticketContext),
+    // Keep the team's disputes across re-reviews: they are decisions, not review output.
+    disputes: previous?.disputes || [],
   });
+  // Which version of the PR's exceptions this review applied (null = none) — lets the UI
+  // flag a review as out of date when exceptions are added or edited afterwards.
+  saved.exceptionsApplied = exceptions ? { updatedAt: exceptions.updatedAt, filename: exceptions.filename } : null;
   saved.reviewKinds = reviewKinds.map((k) => k.kind);
   saved.skillsUsed = skillsUsed;
   return await upsertPrReview(saved);
@@ -332,4 +348,53 @@ async function loadPrDiffForReview({ repo, prId }) {
       error: err.message,
     };
   }
+}
+
+/** Re-derive the fields that depend on the improvements/signals after a manual change. */
+function refreshDerivedFields(review) {
+  const next = { ...review };
+  next.embedding = embedText(
+    buildReviewEmbeddingText({
+      title: next.title,
+      jiraKey: next.jiraKey,
+      ticketSummary: next.ticketSummary,
+      changedFiles: next.diffCoverage?.included,
+      summary: next.summary,
+      strengths: next.strengths,
+      improvements: next.improvements,
+      signals: next.signals,
+    })
+  );
+  next.reviewDocument = formatPrReviewMarkdown(next);
+  return next;
+}
+
+async function loadSavedReviewOr404(repo, prId) {
+  const review = await getPrReview(repo, prId);
+  if (!review) throw new AtlassianApiError("No saved review for this PR.", 404, "NO_PR_REVIEW");
+  return review;
+}
+
+/** The team disputes one review item: it leaves the report and becomes a team decision. */
+export async function disputeReviewItem({ repo, prId, index, item, reason, removeSignals, by }) {
+  const review = await loadSavedReviewOr404(repo, prId);
+  let next;
+  try {
+    next = applyDispute(review, { index, item, reason, removeSignals, by });
+  } catch (err) {
+    throw new AtlassianApiError(err.message, err.status || 400, "BAD_DISPUTE");
+  }
+  return await upsertPrReview(refreshDerivedFields(next));
+}
+
+/** Undo a dispute: the item comes back into the report. */
+export async function restoreReviewItem({ repo, prId, disputeIndex }) {
+  const review = await loadSavedReviewOr404(repo, prId);
+  let next;
+  try {
+    next = restoreDispute(review, disputeIndex);
+  } catch (err) {
+    throw new AtlassianApiError(err.message, err.status || 400, "BAD_DISPUTE");
+  }
+  return await upsertPrReview(refreshDerivedFields(next));
 }

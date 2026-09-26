@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import Markdown from "./Markdown.jsx";
 import StatusBadge from "./StatusBadge.jsx";
+import SeverityText from "./SeverityText.jsx";
 
 const COMPLETENESS_TONE = {
   incomplete: "badge-red",
@@ -49,6 +50,45 @@ function clipDisplay(text, max) {
   return `${(at > max * 0.55 ? cut.slice(0, at) : cut).trimEnd()}…`;
 }
 
+/** Read-only: disputes are managed from the Exceptions column of the PR table. */
+function ImprovementsReadOnly({ review }) {
+  const items = review.improvements || review.weaknesses || [];
+  const disputes = review.disputes || [];
+  return (
+    <>
+      {items.length ? (
+        <ul className="compact-list">
+          {items.map((item, i) => (
+            <li key={i}>
+              <SeverityText item={item} />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">None recorded.</p>
+      )}
+      {disputes.length ? (
+        <div className="disputed-list">
+          <div className="muted small" style={{ marginTop: 8 }}>
+            Disputed by the team ({disputes.length}) — removed from the report:
+          </div>
+          <ul className="compact-list">
+            {disputes.map((d, i) => (
+              <li key={`${i}-${d.item}`} className="muted small">
+                <s>{d.item}</s> — {d.reason}
+                {d.by ? ` (${d.by})` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <p className="muted small" style={{ marginTop: 6 }}>
+        Not an issue for this project? Dispute it from the <strong>Exceptions</strong> column of the PR list.
+      </p>
+    </>
+  );
+}
+
 export default function PrReviewPanel({ review, onClose }) {
   const dialogRef = useRef(null);
   const onCloseRef = useRef(onClose);
@@ -84,7 +124,6 @@ export default function PrReviewPanel({ review, onClose }) {
   const summary = clipDisplay(review.summary, 220);
   const rationale = clipDisplay(review.scoreRationale, 160);
   const strengths = (review.strengths || []).slice(0, 3);
-  const improvements = (review.improvements || review.weaknesses || []).slice(0, 4);
   const signals = review.signals || [];
   const relatedPrs = review.relatedPrs || [];
   const ticketContext = review.ticketContext;
@@ -145,7 +184,7 @@ export default function PrReviewPanel({ review, onClose }) {
             </section>
             <section className="detail-section">
               <h4>Improvements</h4>
-              <BulletList items={improvements} empty="None recorded." />
+              <ImprovementsReadOnly review={review} />
             </section>
           </div>
 

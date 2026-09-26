@@ -43,6 +43,14 @@ CREATE TABLE IF NOT EXISTS pr_reviews (
   PRIMARY KEY (user_id, id)
 );
 
+-- Per-PR review exceptions (intended behaviours the AI must not report), written before/after review.
+CREATE TABLE IF NOT EXISTS pr_exceptions (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id TEXT NOT NULL,
+  data JSONB NOT NULL,
+  PRIMARY KEY (user_id, id)
+);
+
 CREATE TABLE IF NOT EXISTS pr_watch (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   date DATE NOT NULL,
@@ -92,3 +100,14 @@ CREATE TABLE IF NOT EXISTS author_emails (
   email TEXT,
   PRIMARY KEY (user_id, username)
 );
+
+CREATE TABLE IF NOT EXISTS member_reviews (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id TEXT NOT NULL,
+  data JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_member_reviews_user_created
+  ON member_reviews (user_id, created_at DESC);

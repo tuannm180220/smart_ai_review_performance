@@ -101,6 +101,8 @@ export async function listPrReviewStatuses({ repo } = {}) {
       reviewedAt: review.reviewedAt,
       ticketComplexity: review.ticketComplexity,
       codeCompleteness: review.codeCompleteness,
+      disputesCount: (review.disputes || []).length,
+      exceptionsAppliedAt: review.exceptionsApplied?.updatedAt || null,
     };
   }
   return statuses;

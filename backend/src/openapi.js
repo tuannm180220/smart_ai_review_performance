@@ -217,7 +217,26 @@ export const openApiSpec = {
             },
           },
         },
+        responses: { 200: { description: "OK — the saved member review (includes id, reviewedAt)" } },
+      },
+    },
+    "/ai-review/history": {
+      get: {
+        tags: ["AI Review"],
+        summary: "Past member reviews of one person, newest first (summary, no report body)",
+        parameters: [
+          { name: "author", in: "query", schema: { type: "string" } },
+          { name: "authorUsername", in: "query", schema: { type: "string" } },
+        ],
         responses: { 200: { description: "OK" } },
+      },
+    },
+    "/ai-review/history/{id}": {
+      get: {
+        tags: ["AI Review"],
+        summary: "One saved member review with its full report",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: { 200: { description: "OK" }, 404: { description: "Not found" } },
       },
     },
     "/pr-reviews": {
@@ -254,6 +273,97 @@ export const openApiSpec = {
       post: {
         tags: ["PR Reviews"],
         summary: "Run an AI review of one PR (evidence + diff + author history -> AI provider) and save it",
+        parameters: [
+          { name: "repo", in: "path", required: true, schema: { type: "string" } },
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { 200: { description: "OK" } },
+      },
+    },
+    "/pr-reviews/{repo}/{id}/disputes": {
+      post: {
+        tags: ["PR Reviews"],
+        summary: "Dispute one improvement of a saved review (removes it from the report; kept as a team decision)",
+        parameters: [
+          { name: "repo", in: "path", required: true, schema: { type: "string" } },
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["index", "reason"],
+                properties: {
+                  index: { type: "integer", description: "Position in improvements[]" },
+                  item: { type: "string", description: "Text of the item, to reject stale requests" },
+                  reason: { type: "string" },
+                  removeSignals: { type: "array", items: { type: "string" } },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: "Updated review" }, 400: { description: "Invalid or stale dispute" }, 404: { description: "No saved review" } },
+      },
+    },
+    "/pr-reviews/{repo}/{id}/disputes/{index}": {
+      delete: {
+        tags: ["PR Reviews"],
+        summary: "Restore a disputed item back into the review",
+        parameters: [
+          { name: "repo", in: "path", required: true, schema: { type: "string" } },
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "index", in: "path", required: true, schema: { type: "integer" } },
+        ],
+        responses: { 200: { description: "Updated review" } },
+      },
+    },
+    "/pr-exceptions": {
+      get: {
+        tags: ["PR Exceptions"],
+        summary: "Status map of per-PR review exceptions ({ 'repo#id': { updatedAt, filename, itemCount } })",
+        parameters: [{ name: "repo", in: "query", required: false, schema: { type: "string" } }],
+        responses: { 200: { description: "OK" } },
+      },
+    },
+    "/pr-exceptions/{repo}/{id}": {
+      get: {
+        tags: ["PR Exceptions"],
+        summary: "Get a PR's declared exceptions (text is null when none)",
+        parameters: [
+          { name: "repo", in: "path", required: true, schema: { type: "string" } },
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: { 200: { description: "OK" } },
+      },
+      put: {
+        tags: ["PR Exceptions"],
+        summary: "Save a PR's exceptions (typed or uploaded .md); applied on the next review",
+        parameters: [
+          { name: "repo", in: "path", required: true, schema: { type: "string" } },
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+        ],
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["text"],
+                properties: {
+                  text: { type: "string" },
+                  source: { type: "string", enum: ["typed", "uploaded"] },
+                  filename: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: "OK" }, 400: { description: "Empty or too long" } },
+      },
+      delete: {
+        tags: ["PR Exceptions"],
+        summary: "Remove a PR's exceptions",
         parameters: [
           { name: "repo", in: "path", required: true, schema: { type: "string" } },
           { name: "id", in: "path", required: true, schema: { type: "string" } },

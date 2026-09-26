@@ -17,7 +17,32 @@ const NON_NEGOTIABLE_RULES = [
   "Reply with a single JSON object only — no markdown fences, no commentary.",
 ].join(" ");
 
-export function buildPrReviewPrompt({ evidence, prDiff, history, relatedPrs, customSystemPrompt, reviewKinds }) {
+function buildTicketSection(ticketContext) {
+  if (!ticketContext) return "";
+  const { jiraKey, earlier, omittedEarlierCount, later } = ticketContext;
+  const laterNote = later.length
+    ? `\n${later.length} later PR(s) of this ticket exist (${later.map((p) => `${p.repo}#${p.prId}`).join(", ")}) — a problem here may be fixed there; do not assume either way.`
+    : "";
+  if (!earlier.length) {
+    return `## Same-ticket PRs (${jiraKey})
+This is the first PR of the ticket.${laterNote}
+
+`;
+  }
+  return `## Same-ticket PRs (${jiraKey}) — earlier PRs of this task, oldest first
+${JSON.stringify(earlier, null, 2)}${omittedEarlierCount ? `\n(${omittedEarlierCount} older PR(s) omitted.)` : ""}${laterNote}
+
+How to use this (the current PR is one step of a multi-PR task):
+1. Ticket fit across the task: acceptance points already delivered by earlier PRs (see their summaries) are NOT gaps of this PR. Only flag \`partial-ticket\` for points still missing after all PRs so far that this PR was supposed to cover.
+2. Earlier feedback: for each earlier improvement whose files (sharedFiles) or topic this diff touches, decide "fixed" or "still-open" and record it in \`followUps\`. Do not report an earlier problem again as new; if it is still present in THIS diff, add an improvement ending with "(still open from PR #<id>)".
+3. Consistency: flag it when this PR reverts, duplicates or contradicts what an earlier PR of the ticket did (different approach to the same logic, re-adding removed code, conflicting contract).
+4. Unreviewed earlier PRs (reviewed: false) are metadata only — never judge their code.
+5. Never lower this PR's labels because of an earlier PR's problems.
+
+`;
+}
+
+export function buildPrReviewPrompt({ evidence, prDiff, history, relatedPrs, customSystemPrompt, reviewKinds, ticketContext }) {
   const persona = (customSystemPrompt || "").trim() || DEFAULT_REVIEW_PERSONA;
   const system = `${persona}\n\n${NON_NEGOTIABLE_RULES}`;
 
@@ -79,9 +104,12 @@ different kind of change, still apply the base skill fully and say so in labelRa
 `
       : "";
 
+  const ticketSection = buildTicketSection(ticketContext);
+  const hasEarlier = Boolean(ticketContext?.earlier?.length);
+
   const prompt = `Review this pull request for the author and for a later member-level synthesis.
 
-${kindsSection}
+${kindsSection}${ticketSection}
 ## Evidence
 ${JSON.stringify(evidence, null, 2)}
 
@@ -99,7 +127,8 @@ Return JSON with exactly these keys:
   "labelRationale": "1 sentence: evidence for those two labels",
   "strengths": ["reusable engineering habit, with file if useful"],
   "improvements": ["path/or-area: what is wrong and what to do instead"],
-  "signals": ["tests-missing"]
+  "signals": ["tests-missing"]${hasEarlier ? `,
+  "followUps": [{ "prId": 12, "item": "earlier improvement, shortened", "status": "fixed" | "still-open" }]` : ""}
 }
 
 Do not include a score or rating. Labels must be evidence-based.

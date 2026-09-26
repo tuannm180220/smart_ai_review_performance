@@ -14,6 +14,7 @@ import { logError } from "../lib/logger.js";
 import { embedText, cosineSimilarity, buildReviewEmbeddingText } from "../lib/textEmbedding.js";
 import { composeReviewPersona } from "./reviewSkills.js";
 import { detectPrKinds } from "../lib/prKind.js";
+import { buildTicketPrContext, summarizeTicketContext } from "../lib/ticketContext.js";
 
 const COMMENT_EXCERPT_LENGTH = 500;
 const MAX_COMMENTS = 10;
@@ -161,7 +162,30 @@ export async function getRelatedRepoReviews({ repo, embedding, excludePrId, limi
     }));
 }
 
-function buildSavedReview({ record, assessment, prDiff, provider, relatedPrs }) {
+/** Earlier (and later) PRs of the same Jira ticket, across repos — see lib/ticketContext.js. */
+async function getSameTicketContext(record, prDiff, evidence) {
+  if (!record.jiraKey) return null;
+  try {
+    const store = await getStore();
+    const [reviews, records] = await Promise.all([listPrReviews(), store.getAll()]);
+    return buildTicketPrContext({
+      current: {
+        repo: record.repo,
+        prId: record.prId,
+        jiraKey: record.jiraKey,
+        createdAt: record.createdAt,
+        files: prDiff?.filesIncluded?.length ? prDiff.filesIncluded.map((f) => f.path) : evidence.changedFileSample,
+      },
+      reviews,
+      records,
+    });
+  } catch (err) {
+    logError(`Could not load same-ticket PRs for ${record.jiraKey}:`, err.message);
+    return null;
+  }
+}
+
+function buildSavedReview({ record, assessment, prDiff, provider, relatedPrs, ticketContext }) {
   const diffCoverage = summarizeDiffCoverage(prDiff);
   const saved = {
     repo: record.repo,
@@ -177,6 +201,7 @@ function buildSavedReview({ record, assessment, prDiff, provider, relatedPrs }) 
     ticketSummary: record.ticketSummary || null,
     provider,
     ...assessment,
+    ticketContext: ticketContext || null,
     diffCoverage,
     relatedPrs: (relatedPrs || []).map(({ repo, prId, title, link, similarity }) => ({
       repo,
@@ -227,11 +252,16 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
       changedFiles: evidence.changedFileSample,
     })
   );
-  const relatedPrs = await getRelatedRepoReviews({
-    repo: record.repo,
-    embedding: queryEmbedding,
-    excludePrId: record.prId,
-  });
+  const ticketContext = await getSameTicketContext(record, prDiff, evidence);
+  const sameTicket = new Set((ticketContext?.earlier || []).map((p) => `${p.repo}#${p.prId}`));
+  // Same-ticket PRs already appear in full in their own section — don't spend tokens twice.
+  const relatedPrs = (
+    await getRelatedRepoReviews({
+      repo: record.repo,
+      embedding: queryEmbedding,
+      excludePrId: record.prId,
+    })
+  ).filter((r) => !sameTicket.has(`${r.repo}#${r.prId}`));
   const reviewKinds = detectPrKinds({
     title: record.title,
     sourceBranch: record.sourceBranch,
@@ -253,6 +283,7 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
     relatedPrs,
     customSystemPrompt: persona,
     reviewKinds,
+    ticketContext,
   });
 
   const raw = await askAi({
@@ -270,7 +301,14 @@ export async function reviewPullRequest({ repo, prId, hint } = {}) {
   }
 
   const assessment = normalizeAssessment(parsed);
-  const saved = buildSavedReview({ record, assessment, prDiff, provider: cfg.aiProvider, relatedPrs });
+  const saved = buildSavedReview({
+    record,
+    assessment,
+    prDiff,
+    provider: cfg.aiProvider,
+    relatedPrs,
+    ticketContext: summarizeTicketContext(ticketContext),
+  });
   saved.reviewKinds = reviewKinds.map((k) => k.kind);
   saved.skillsUsed = skillsUsed;
   return await upsertPrReview(saved);

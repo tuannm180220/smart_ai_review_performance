@@ -87,6 +87,8 @@ export default function PrReviewPanel({ review, onClose }) {
   const improvements = (review.improvements || review.weaknesses || []).slice(0, 4);
   const signals = review.signals || [];
   const relatedPrs = review.relatedPrs || [];
+  const ticketContext = review.ticketContext;
+  const followUps = review.followUps || [];
 
   return createPortal(
     <dialog
@@ -155,6 +157,43 @@ export default function PrReviewPanel({ review, onClose }) {
                 </span>
               ))}
             </p>
+          ) : null}
+
+          {ticketContext?.earlier?.length || followUps.length ? (
+            <section className="detail-section" style={{ marginTop: 10 }}>
+              <h4>Earlier PRs of {ticketContext?.jiraKey || "this ticket"}</h4>
+              {ticketContext?.earlier?.length ? (
+                <p className="muted small" style={{ margin: "0 0 6px" }}>
+                  Used as context:{" "}
+                  {ticketContext.earlier.map((p, i) => (
+                    <span key={`${p.repo}-${p.prId}`}>
+                      {i ? ", " : ""}
+                      {p.link ? (
+                        <a href={p.link} target="_blank" rel="noreferrer">
+                          #{p.prId}
+                        </a>
+                      ) : (
+                        `#${p.prId}`
+                      )}
+                      {p.reviewed ? "" : " (not reviewed)"}
+                    </span>
+                  ))}
+                  {ticketContext.laterCount ? ` · ${ticketContext.laterCount} later PR(s)` : ""}
+                </p>
+              ) : null}
+              {followUps.length ? (
+                <ul className="compact-list">
+                  {followUps.map((f, i) => (
+                    <li key={i}>
+                      <StatusBadge value={f.status} tone={f.status === "fixed" ? "badge-green" : "badge-orange"} />{" "}
+                      <span className="muted small">PR #{f.prId}</span> — {f.item}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted small">No earlier feedback touched by this PR.</p>
+              )}
+            </section>
           ) : null}
 
           {relatedPrs.length ? (

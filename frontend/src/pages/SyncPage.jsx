@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { useToast } from "../context/ToastContext.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import PrReviewPanel, { CompletenessBadge } from "../components/PrReviewPanel.jsx";
+import ExceptionsDialog from "../components/ExceptionsDialog.jsx";
 import { defaultFrom, defaultTo } from "../lib/dates.js";
 
 function formatDate(iso) {
@@ -38,6 +39,44 @@ function ticketBrowseUrl(jiraBaseUrl, key) {
   return `${jiraBaseUrl.replace(/\/+$/, "")}/browse/${encodeURIComponent(key)}`;
 }
 
+/**
+ * "Exceptions" column: declared intended behaviours for this PR (applied on the next review)
+ * plus items disputed in the saved report. Warns when the review predates the exceptions.
+ */
+function ExceptionsCell({ exception, status, onOpen }) {
+  const disputed = status?.disputesCount || 0;
+  const stale = Boolean(status) && (exception?.updatedAt || null) !== (status.exceptionsAppliedAt || null);
+  if (!exception && !disputed) {
+    return (
+      <button
+        type="button"
+        className="link-button small"
+        onClick={onOpen}
+        title={status ? "Declare exceptions or dispute items of the current report" : "Declare intended behaviours before review"}
+      >
+        {status ? "+ Add / Dispute" : "+ Add"}
+      </button>
+    );
+  }
+  return (
+    <button type="button" className="exceptions-open" onClick={onOpen} title="View / edit exceptions">
+      {exception ? (
+        <span>
+          {exception.itemCount} item{exception.itemCount === 1 ? "" : "s"}
+          {exception.filename ? <span className="muted small"> · {exception.filename}</span> : null}
+        </span>
+      ) : null}
+      {disputed ? (
+        <span className="muted small">
+          {exception ? " · " : ""}
+          {disputed} disputed
+        </span>
+      ) : null}
+      {stale ? <span className="badge badge-orange exceptions-stale">re-review</span> : null}
+    </button>
+  );
+}
+
 export default function SyncPage() {
   const toast = useToast();
   const [repos, setRepos] = useState([]);
@@ -56,6 +95,8 @@ export default function SyncPage() {
   const [reviewStatuses, setReviewStatuses] = useState({});
   const [reviewingKey, setReviewingKey] = useState(null);
   const [openReview, setOpenReview] = useState(null);
+  const [exceptionStatuses, setExceptionStatuses] = useState({});
+  const [openExceptions, setOpenExceptions] = useState(null); // { record, review }
   const [jiraBaseUrl, setJiraBaseUrl] = useState("");
 
   useEffect(() => {
@@ -85,6 +126,11 @@ export default function SyncPage() {
         setReviewStatuses(await api.listPrReviewStatuses(forRepo));
       } catch {
         setReviewStatuses({});
+      }
+      try {
+        setExceptionStatuses(await api.listPrExceptions(forRepo));
+      } catch {
+        setExceptionStatuses({});
       }
     } catch (err) {
       toast.error(err.message);
@@ -160,11 +206,7 @@ export default function SyncPage() {
       const review = await api.reviewPullRequest(record.repo, record.prId);
       setReviewStatuses((prev) => ({
         ...prev,
-        [key]: {
-          reviewedAt: review.reviewedAt,
-          ticketComplexity: review.ticketComplexity,
-          codeCompleteness: review.codeCompleteness,
-        },
+        [key]: statusFromReview(review),
       }));
       setOpenReview(review);
       toast.success(`Saved review for #${record.prId}.`);
@@ -173,6 +215,35 @@ export default function SyncPage() {
     } finally {
       setReviewingKey(null);
     }
+  }
+
+  function statusFromReview(review) {
+    return {
+      reviewedAt: review.reviewedAt,
+      ticketComplexity: review.ticketComplexity,
+      codeCompleteness: review.codeCompleteness,
+      disputesCount: (review.disputes || []).length,
+      exceptionsAppliedAt: review.exceptionsApplied?.updatedAt || null,
+    };
+  }
+
+  function handleReviewChanged(review) {
+    const key = `${review.repo}#${review.prId}`;
+    setReviewStatuses((prev) => ({ ...prev, [key]: statusFromReview(review) }));
+    setOpenExceptions((prev) => (prev && `${prev.record.repo}#${prev.record.prId}` === key ? { ...prev, review } : prev));
+  }
+
+  async function handleOpenExceptions(record) {
+    const key = `${record.repo}#${record.prId}`;
+    let review = null;
+    if (reviewStatuses[key]) {
+      try {
+        review = await api.getPrReview(record.repo, record.prId);
+      } catch {
+        review = null;
+      }
+    }
+    setOpenExceptions({ record, review });
   }
 
   async function handleViewReview(record) {
@@ -290,6 +361,7 @@ export default function SyncPage() {
                 <th>Pts</th>
                 <th>Reopened</th>
                 <th>Completeness</th>
+                <th title="Intended behaviours the AI review must not report for this PR">Exceptions</th>
                 <th>Review</th>
               </tr>
             </thead>
@@ -373,6 +445,13 @@ export default function SyncPage() {
                       )}
                     </td>
                     <td>
+                      <ExceptionsCell
+                        exception={exceptionStatuses[key]}
+                        status={status}
+                        onOpen={() => handleOpenExceptions(r)}
+                      />
+                    </td>
+                    <td>
                       <button
                         type="button"
                         className="btn-compact"
@@ -387,7 +466,7 @@ export default function SyncPage() {
               })}
               {visibleRecords.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="muted">
+                  <td colSpan={13} className="muted">
                     {records.length
                       ? "No records match the current filters."
                       : "No records yet — run a Sync above."}
@@ -400,6 +479,23 @@ export default function SyncPage() {
       )}
 
       {openReview && <PrReviewPanel review={openReview} onClose={() => setOpenReview(null)} />}
+      {openExceptions && (
+        <ExceptionsDialog
+          record={openExceptions.record}
+          review={openExceptions.review}
+          onReviewChanged={handleReviewChanged}
+          onClose={() => setOpenExceptions(null)}
+          onSaved={(st) =>
+            setExceptionStatuses((prev) => {
+              const next = { ...prev };
+              const k = `${openExceptions.record.repo}#${openExceptions.record.prId}`;
+              if (st) next[k] = st;
+              else delete next[k];
+              return next;
+            })
+          }
+        />
+      )}
     </div>
   );
 }

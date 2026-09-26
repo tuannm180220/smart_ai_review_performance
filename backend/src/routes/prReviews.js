@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { asyncHandler } from "../lib/asyncHandler.js";
-import { reviewPullRequest } from "../services/prReviewService.js";
+import { reviewPullRequest, disputeReviewItem, restoreReviewItem } from "../services/prReviewService.js";
 import { getPrReview, listPrReviews, listPrReviewStatuses } from "../store/prReviewStore.js";
 import { appendEvent } from "../store/usageEventStore.js";
 import { resolveEmail } from "../store/authorEmailStore.js";
@@ -45,6 +45,35 @@ router.post(
       author: review.author,
       authorUsername: review.authorUsername,
       authorEmail: await resolveEmail(review.author, review.authorUsername),
+    });
+    res.json(review);
+  })
+);
+
+router.post(
+  "/pr-reviews/:repo/:id/disputes",
+  asyncHandler(async (req, res) => {
+    const { index, item, reason, removeSignals } = req.body || {};
+    const review = await disputeReviewItem({
+      repo: req.params.repo,
+      prId: req.params.id,
+      index,
+      item,
+      reason,
+      removeSignals: Array.isArray(removeSignals) ? removeSignals : [],
+      by: req.user?.email || null,
+    });
+    res.json(review);
+  })
+);
+
+router.delete(
+  "/pr-reviews/:repo/:id/disputes/:index",
+  asyncHandler(async (req, res) => {
+    const review = await restoreReviewItem({
+      repo: req.params.repo,
+      prId: req.params.id,
+      disputeIndex: req.params.index,
     });
     res.json(review);
   })

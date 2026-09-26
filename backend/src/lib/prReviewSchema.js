@@ -93,6 +93,16 @@ export function normalizeAssessment(raw) {
   };
 }
 
+function formatDisputes(review) {
+  const disputes = review.disputes || [];
+  if (!disputes.length) return [];
+  return [
+    "",
+    "## Disputed by the team (removed from this report)",
+    ...disputes.map((d) => `- ~~${d.item}~~ — ${d.reason}${d.by ? ` (${d.by})` : ""}`),
+  ];
+}
+
 function formatFollowUps(review) {
   const ctx = review.ticketContext;
   const followUps = review.followUps || [];
@@ -130,6 +140,7 @@ export function formatPrReviewMarkdown(review) {
     "## Improvements",
     improvements,
     ...formatFollowUps(review),
+    ...formatDisputes(review),
     "",
     `Signals: ${signals}`,
   ].join("\n");

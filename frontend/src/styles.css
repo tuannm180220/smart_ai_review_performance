@@ -10,6 +10,11 @@
   --orange: #e0a021;
   --gray: #5b6270;
   --blue: #4f8cff;
+  /* Review severity scale: red → orange → yellow → green */
+  --sev-blocker: #ea5a5a;
+  --sev-major: #f08a3c;
+  --sev-minor: #e8c547;
+  --sev-nit: #35c07a;
   font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
   /* Dataviz categorical palette — validated for CVD/contrast against --panel (dark). */
@@ -914,4 +919,87 @@ code {
 .mapping-row-input {
   width: 100%;
   max-width: 280px;
+}
+
+.dispute-form {
+  margin: 6px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dispute-form textarea {
+  width: 100%;
+  resize: vertical;
+  font-size: 13px;
+}
+
+.dispute-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.link-button.small {
+  font-size: 12px;
+}
+
+.exceptions-open {
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  color: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.exceptions-open:hover {
+  border-color: var(--accent);
+}
+
+.exceptions-stale {
+  margin-left: 6px;
+  font-size: 10px;
+}
+
+.exceptions-text {
+  width: 100%;
+  font-family: monospace;
+  font-size: 13px;
+  resize: vertical;
+}
+
+/* Severity badge on review items (blocker / major / minor / nit) */
+.badge.sev {
+  margin-right: 6px;
+  text-transform: lowercase;
+  vertical-align: 1px;
+}
+
+.sev-blocker {
+  background: rgba(234, 90, 90, 0.2);
+  color: var(--sev-blocker);
+}
+
+.sev-major {
+  background: rgba(240, 138, 60, 0.2);
+  color: var(--sev-major);
+}
+
+.sev-minor {
+  background: rgba(232, 197, 71, 0.2);
+  color: var(--sev-minor);
+}
+
+.sev-nit {
+  background: rgba(53, 192, 122, 0.2);
+  color: var(--sev-nit);
+}
+
+.sev-rule {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--muted);
+  margin-right: 2px;
 }

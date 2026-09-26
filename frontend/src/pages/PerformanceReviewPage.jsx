@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import { useToast } from "../context/ToastContext.jsx";
 import Markdown from "../components/Markdown.jsx";
 import { CompletenessBadge } from "../components/PrReviewPanel.jsx";
+import SeverityText from "../components/SeverityText.jsx";
 
 const METRIC_LABELS = [
   ["totalPRs", "Total PRs"],
@@ -98,7 +99,13 @@ function MemberReviewResult({ result }) {
                     </td>
                     <td className="muted small">{(r.strengths || []).slice(0, 2).join("; ") || "—"}</td>
                     <td className="muted small">
-                      {(r.improvements || r.weaknesses || []).slice(0, 2).join("; ") || "—"}
+                      {(r.improvements || r.weaknesses || []).length
+                        ? (r.improvements || r.weaknesses).slice(0, 2).map((item, i) => (
+                            <div key={i}>
+                              <SeverityText item={item} />
+                            </div>
+                          ))
+                        : "—"}
                     </td>
                   </tr>
                 ))}

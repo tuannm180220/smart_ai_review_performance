@@ -14,6 +14,8 @@ export default function PromptsPage() {
 
   const [repos, setRepos] = useState([]);
   const [repo, setRepo] = useState("");
+  const [skills, setSkills] = useState([]);
+  const [kind, setKind] = useState("base");
   const [overrides, setOverrides] = useState([]);
   const [loadingRepos, setLoadingRepos] = useState(true);
 
@@ -36,6 +38,10 @@ export default function PromptsPage() {
       })
       .catch((err) => toast.error(err.message))
       .finally(() => setLoadingRepos(false));
+    api
+      .listReviewSkills()
+      .then(setSkills)
+      .catch((err) => toast.error(err.message));
     refreshOverrides();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -51,7 +57,7 @@ export default function PromptsPage() {
     if (!repo) return;
     setLoadingPrompt(true);
     api
-      .getPrReviewPrompt(repo)
+      .getPrReviewPrompt(repo, kind)
       .then((data) => {
         const effectiveText = data.isDefault ? data.defaultPromptText || "" : data.promptText || "";
         setDefaultPromptText(data.defaultPromptText || "");
@@ -64,7 +70,7 @@ export default function PromptsPage() {
       })
       .catch((err) => toast.error(err.message))
       .finally(() => setLoadingPrompt(false));
-  }, [repo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [repo, kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleFileUpload(e) {
     const file = e.target.files?.[0];
@@ -85,11 +91,11 @@ export default function PromptsPage() {
     if (!promptText.trim()) return toast.error("The prompt can't be empty.");
     setSaving(true);
     try {
-      const saved = await api.savePrReviewPrompt(repo, { promptText, source, filename });
+      const saved = await api.savePrReviewPrompt(repo, { kind, promptText, source, filename });
       setIsDefault(false);
       setSavedPromptText(promptText);
       setUpdatedAt(saved.updatedAt);
-      toast.success(`Saved custom review prompt for ${repo}.`);
+      toast.success(`Saved custom "${skillLabel(kind)}" skill for ${repo}.`);
       refreshOverrides();
     } catch (err) {
       toast.error(err.message);
@@ -102,14 +108,14 @@ export default function PromptsPage() {
     if (!repo) return;
     setSaving(true);
     try {
-      await api.deletePrReviewPrompt(repo);
+      await api.deletePrReviewPrompt(repo, kind);
       setIsDefault(true);
       setPromptText(defaultPromptText);
       setSavedPromptText(defaultPromptText);
       setSource("typed");
       setFilename(null);
       setUpdatedAt(null);
-      toast.success(`Reverted ${repo} to the default review prompt.`);
+      toast.success(`Reverted ${repo} to the default "${skillLabel(kind)}" skill.`);
       refreshOverrides();
     } catch (err) {
       toast.error(err.message);
@@ -118,12 +124,12 @@ export default function PromptsPage() {
     }
   }
 
-  async function handleDeleteRow(targetRepo) {
+  async function handleDeleteRow(targetRepo, targetKind) {
     try {
-      await api.deletePrReviewPrompt(targetRepo);
-      toast.success(`Reverted ${targetRepo} to the default review prompt.`);
+      await api.deletePrReviewPrompt(targetRepo, targetKind);
+      toast.success(`Reverted ${targetRepo} to the default "${skillLabel(targetKind)}" skill.`);
       refreshOverrides();
-      if (targetRepo === repo) {
+      if (targetRepo === repo && targetKind === kind) {
         setIsDefault(true);
         setPromptText(defaultPromptText);
         setSavedPromptText(defaultPromptText);
@@ -137,14 +143,20 @@ export default function PromptsPage() {
   }
 
   const dirty = promptText !== savedPromptText;
+  const currentSkill = skills.find((s) => s.kind === kind);
+  function skillLabel(k) {
+    return skills.find((s) => s.kind === k)?.label || k;
+  }
 
   return (
     <div className="page">
       <h2>Review prompts</h2>
       <p className="muted">
-        The AI review has a built-in default prompt. Override it per Bitbucket repo below — type your own
-        instructions or upload a .md file — to change tone, priorities, or house rules for that repo's reviews.
-        The output format (JSON keys, factuality rules) always stays enforced regardless of what you write here.
+        Each PR review uses the <strong>Base</strong> skill plus up to two <strong>type skills</strong> the app
+        picks from the PR itself (changed files, branch, title, ticket): Feature, Export / report, Bug fix, or
+        DB / batch / integration. Every skill has a built-in default; override any of them per Bitbucket repo —
+        type your own or upload a .md file — to add house rules. The output format (JSON keys, factuality rules)
+        always stays enforced regardless of what you write here.
       </p>
 
       <div className="form-grid" style={{ maxWidth: 900 }}>
@@ -156,20 +168,42 @@ export default function PromptsPage() {
             <select id="p-repo" value={repo} onChange={(e) => setRepo(e.target.value)} disabled={loadingRepos}>
               {!repos.length && <option value="">No repos found</option>}
               {repos.map((r) => {
-                const hasOverride = overrides.some((o) => o.repo === r.slug);
+                const count = overrides.filter((o) => o.repo === r.slug).length;
                 return (
                   <option key={r.slug} value={r.slug}>
                     {r.name}
-                    {hasOverride ? " (custom)" : ""}
+                    {count ? ` (${count} custom)` : ""}
                   </option>
                 );
               })}
             </select>
             {!loadingPrompt && (
               <span className="muted small">
-                {isDefault ? "Using the default prompt." : `Custom prompt saved${updatedAt ? ` · ${formatUpdatedAt(updatedAt)}` : ""}${filename ? ` · from ${filename}` : ""}.`}
+                {isDefault ? "Using the built-in default for this skill." : `Custom prompt saved${updatedAt ? ` · ${formatUpdatedAt(updatedAt)}` : ""}${filename ? ` · from ${filename}` : ""}.`}
               </span>
             )}
+          </div>
+        </div>
+
+        <div className="field">
+          <label className="field-label" htmlFor="p-skill">
+            Skill
+          </label>
+          <div className="field-input">
+            <select id="p-skill" value={kind} onChange={(e) => setKind(e.target.value)} disabled={!skills.length}>
+              {(skills.length ? skills : [{ kind: "base", label: "Base — every PR" }]).map((s) => {
+                const custom = overrides.some((o) => o.repo === repo && o.kind === s.kind);
+                return (
+                  <option key={s.kind} value={s.kind}>
+                    {s.label}
+                    {custom ? " (custom)" : ""}
+                  </option>
+                );
+              })}
+            </select>
+            {currentSkill?.appliesWhen ? (
+              <span className="muted small">Applied when: {currentSkill.appliesWhen}</span>
+            ) : null}
           </div>
         </div>
 
@@ -186,9 +220,9 @@ export default function PromptsPage() {
                 setSource("typed");
               }}
               disabled={loadingPrompt}
-              rows={16}
+              rows={22}
               style={{ fontFamily: "monospace", fontSize: 13, resize: "vertical" }}
-              placeholder="Describe how this repo's PRs should be reviewed…"
+              placeholder="Describe how this kind of PR should be reviewed in this repo…"
             />
             <div className="field-input-row" style={{ marginTop: 4 }}>
               <button type="button" onClick={() => fileInputRef.current?.click()} disabled={loadingPrompt}>
@@ -203,9 +237,9 @@ export default function PromptsPage() {
               />
             </div>
             <span className="muted small">
-              Markdown or plain text, up to 20,000 characters. This replaces the reviewer's persona/focus
-              instructions only — evidence, diff, review history, and the required JSON output shape are always
-              added by the app.
+              Markdown or plain text, up to 20,000 characters per skill. A custom skill replaces the default of the
+              same kind for this repo only — evidence, diff, review history, and the required JSON output shape are
+              always added by the app.
             </span>
           </div>
         </div>
@@ -222,12 +256,13 @@ export default function PromptsPage() {
 
       {overrides.length > 0 && (
         <>
-          <h3 style={{ marginTop: 28 }}>Repos with a custom prompt</h3>
+          <h3 style={{ marginTop: 28 }}>Custom skills</h3>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Repo</th>
+                  <th>Skill</th>
                   <th>Source</th>
                   <th>Updated</th>
                   <th></th>
@@ -235,15 +270,19 @@ export default function PromptsPage() {
               </thead>
               <tbody>
                 {overrides.map((o) => (
-                  <tr key={o.repo}>
+                  <tr key={`${o.repo}::${o.kind}`}>
                     <td>{o.repo}</td>
+                    <td>{skillLabel(o.kind)}</td>
                     <td>{o.source === "uploaded" ? `Uploaded (${o.filename || "file"})` : "Typed"}</td>
                     <td>{formatUpdatedAt(o.updatedAt) || "—"}</td>
                     <td>
-                      <button type="button" className="link-button" onClick={() => setRepo(o.repo)}>
+                      <button type="button" className="link-button" onClick={() => {
+                          setRepo(o.repo);
+                          setKind(o.kind || "base");
+                        }}>
                         Edit
                       </button>{" "}
-                      <button type="button" className="link-button" onClick={() => handleDeleteRow(o.repo)}>
+                      <button type="button" className="link-button" onClick={() => handleDeleteRow(o.repo, o.kind || "base")}>
                         Delete
                       </button>
                     </td>
